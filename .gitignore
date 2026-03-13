@@ -1,0 +1,19 @@
+# Swift
+.build/
+.swiftpm/
+*.xcodeproj/
+xcuserdata/
+DerivedData/
+Package.resolved
+
+# Build artifacts
+*.app
+*.dmg
+
+# CLI
+cli/node_modules/
+cli/package-lock.json
+
+# macOS
+.DS_Store
+*.dSYM/

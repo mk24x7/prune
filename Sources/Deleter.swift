@@ -7,16 +7,27 @@ enum Deleter {
     }
 
     /// Delete directories sequentially to avoid I/O spikes.
+    /// Safety: only deletes directories whose last path component is in `allowedNames`,
+    /// or whose full URL is in `allowedSystemPaths`.
     static func delete(
         urls: [URL],
+        allowedNames: Set<String>,
+        allowedSystemPaths: Set<URL>,
         onProgress: (Int, Int, URL) -> Void
     ) -> Result {
         var result = Result()
         let fm = FileManager.default
 
         for (index, url) in urls.enumerated() {
-            guard url.lastPathComponent == "node_modules" else {
-                result.failed.append((url: url, error: "Refusing to delete: path does not end in node_modules"))
+            let name = url.lastPathComponent
+            let isAllowedByName = allowedNames.contains(name)
+            let isAllowedByPath = allowedSystemPaths.contains(url)
+
+            guard isAllowedByName || isAllowedByPath else {
+                result.failed.append((
+                    url: url,
+                    error: "Refusing to delete: '\(name)' is not a recognized artifact directory"
+                ))
                 continue
             }
 

@@ -4,52 +4,87 @@ import path from 'node:path';
 import os from 'node:os';
 import chalk from 'chalk';
 import ora from 'ora';
-import { DEFAULT_ROOT } from '../lib/constants.js';
-import { scanForNodeModules } from '../lib/scanner.js';
-import { calculateSizes } from '../lib/sizer.js';
+import { DEFAULT_ROOT, ARTIFACT_CATEGORIES } from './lib/constants.js';
+import { scanForArtifacts, checkSystemArtifacts } from './lib/scanner.js';
+import { calculateSizes } from './lib/sizer.js';
 import {
   formatSizeRaw,
+  promptCategories,
   promptSelection,
   promptConfirm,
   printSummary,
-} from '../lib/ui.js';
-import { deleteDirectories } from '../lib/deleter.js';
+  listCategories,
+} from './lib/ui.js';
+import { deleteDirectories } from './lib/deleter.js';
 
 // -- Parse CLI arguments --
 
 const args = process.argv.slice(2);
-const flags = new Set(args.filter((a) => a.startsWith('--')));
-const positional = args.filter((a) => !a.startsWith('--'));
+
+// Parse args into flags, positional args, and flag values
+const flags = new Set();
+const positional = [];
+let categoriesArg = null;
+
+for (let i = 0; i < args.length; i++) {
+  const arg = args[i];
+  if (arg === '-h') {
+    flags.add('-h');
+  } else if (arg.startsWith('--categories=')) {
+    categoriesArg = arg.split('=').slice(1).join('=');
+  } else if (arg === '--categories') {
+    if (i + 1 >= args.length || args[i + 1].startsWith('--')) {
+      console.error('Error: --categories requires a value (e.g. --categories node,rust)');
+      process.exit(1);
+    }
+    categoriesArg = args[++i];
+  } else if (arg.startsWith('--')) {
+    flags.add(arg);
+  } else {
+    positional.push(arg);
+  }
+}
 
 if (flags.has('--help') || flags.has('-h')) {
   console.log(`
-${chalk.bold('node-cleanup')} - Find and remove node_modules directories
+${chalk.bold('prune')} - Find and remove developer build artifacts to free disk space
 
 ${chalk.dim('Usage:')}
-  node-cleanup [path] [options]
+  prune [path] [options]
 
 ${chalk.dim('Options:')}
-  [path]             Directory to scan (default: home directory)
-  --dry-run          Scan and display only, do not delete
-  --include-hidden   Also scan hidden directories
-  --help, -h         Show this help message
+  [path]                   Directory to scan (default: home directory)
+  --categories <list>      Comma-separated category IDs (e.g. node,rust,xcode-derived)
+  --all                    Scan all artifact categories
+  --list-categories        Show available categories
+  --dry-run                Scan and display only, do not delete
+  --include-hidden         Also scan hidden directories
+  --help, -h               Show this help message
 
 ${chalk.dim('Examples:')}
-  node-cleanup                    Scan home directory
-  node-cleanup ~/projects         Scan specific directory
-  node-cleanup --dry-run          Preview without deleting
+  prune                              Interactive category selection
+  prune ~/projects                   Scan specific directory
+  prune --categories node,rust       Scan Node.js and Rust artifacts
+  prune --all                        Scan all categories
+  prune --all --dry-run              Preview all without deleting
+  prune --list-categories            Show available category IDs
 `);
+  process.exit(0);
+}
+
+if (flags.has('--list-categories')) {
+  listCategories();
   process.exit(0);
 }
 
 const dryRun = flags.has('--dry-run');
 const includeHidden = flags.has('--include-hidden');
+const scanAll = flags.has('--all');
 const root = positional[0] ? path.resolve(positional[0]) : DEFAULT_ROOT;
 
 // -- Ensure clean exit on Ctrl+C --
 
 process.on('SIGINT', () => {
-  // Restore cursor in case ora hid it
   process.stdout.write('\x1B[?25h');
   console.log('\n');
   process.exit(0);
@@ -63,46 +98,84 @@ async function main() {
     ? '~' + root.slice(home.length)
     : root;
 
-  console.log(`\n${chalk.bold('node-cleanup')} - Find and remove node_modules directories\n`);
+  console.log(`\n${chalk.bold('prune')} - Find and remove developer build artifacts\n`);
 
   if (dryRun) {
-    console.log(chalk.dim('(dry-run mode -- no directories will be deleted)\n'));
+    console.log(chalk.dim('(dry-run mode -- no items will be deleted)\n'));
   }
 
-  // Phase 1: Scan for node_modules
+  // Determine categories to scan
+  let categoryIds;
+  if (scanAll) {
+    categoryIds = Object.keys(ARTIFACT_CATEGORIES);
+  } else if (categoriesArg) {
+    categoryIds = categoriesArg.split(',').map((s) => s.trim());
+    // Validate
+    for (const id of categoryIds) {
+      if (!ARTIFACT_CATEGORIES[id]) {
+        console.error(chalk.red(`Unknown category: ${id}`));
+        console.log(chalk.dim('Use --list-categories to see available categories'));
+        process.exit(1);
+      }
+    }
+  } else {
+    // Interactive category selection
+    categoryIds = await promptCategories();
+    if (categoryIds.length === 0) {
+      console.log(chalk.dim('\nNo categories selected.'));
+      process.exit(0);
+    }
+    console.log('');
+  }
+
+  const projectCats = categoryIds.filter((id) => !ARTIFACT_CATEGORIES[id]?.isSystem);
+  const systemCats = categoryIds.filter((id) => ARTIFACT_CATEGORIES[id]?.isSystem);
+
+  // Phase 1: Scan for artifacts
   const spinner = ora({
-    text: `Scanning ${chalk.cyan(displayRoot)} for node_modules...`,
+    text: `Scanning ${chalk.cyan(displayRoot)} for artifacts...`,
     spinner: 'dots',
   }).start();
 
-  let lastUpdate = 0;
-  const paths = await scanForNodeModules(root, {
-    includeHidden,
-    onProgress: (dir) => {
-      // Throttle spinner updates to avoid flickering
-      const now = Date.now();
-      if (now - lastUpdate > 100) {
-        const shortDir = dir.startsWith(home) ? '~' + dir.slice(home.length) : dir;
-        // Truncate long paths
-        const maxLen = process.stdout.columns ? process.stdout.columns - 20 : 60;
-        const display = shortDir.length > maxLen
-          ? '...' + shortDir.slice(shortDir.length - maxLen + 3)
-          : shortDir;
-        spinner.text = `Scanning ${chalk.dim(display)}`;
-        lastUpdate = now;
-      }
-    },
-  });
+  let allItems = [];
 
-  if (paths.length === 0) {
-    spinner.succeed('No node_modules directories found.');
+  // Scan project-level artifacts
+  if (projectCats.length > 0) {
+    let lastUpdate = 0;
+    const projectItems = await scanForArtifacts(root, projectCats, {
+      includeHidden,
+      onProgress: (dir) => {
+        const now = Date.now();
+        if (now - lastUpdate > 100) {
+          const shortDir = dir.startsWith(home) ? '~' + dir.slice(home.length) : dir;
+          const maxLen = process.stdout.columns ? process.stdout.columns - 20 : 60;
+          const display = shortDir.length > maxLen
+            ? '...' + shortDir.slice(shortDir.length - maxLen + 3)
+            : shortDir;
+          spinner.text = `Scanning ${chalk.dim(display)}`;
+          lastUpdate = now;
+        }
+      },
+    });
+    allItems.push(...projectItems);
+  }
+
+  // Check system-level artifacts
+  if (systemCats.length > 0) {
+    spinner.text = 'Checking system artifact locations...';
+    const systemItems = await checkSystemArtifacts(systemCats);
+    allItems.push(...systemItems);
+  }
+
+  if (allItems.length === 0) {
+    spinner.succeed('No artifacts found.');
     process.exit(0);
   }
 
-  spinner.text = `Found ${paths.length} node_modules director${paths.length === 1 ? 'y' : 'ies'}. Calculating sizes...`;
+  spinner.text = `Found ${allItems.length} item${allItems.length === 1 ? '' : 's'}. Calculating sizes...`;
 
   // Phase 2: Calculate sizes
-  const entries = await calculateSizes(paths, {
+  const entries = await calculateSizes(allItems, {
     onProgress: (completed, total) => {
       spinner.text = `Calculating sizes... (${completed}/${total})`;
     },
@@ -110,7 +183,7 @@ async function main() {
 
   const totalBytes = entries.reduce((sum, e) => sum + e.sizeBytes, 0);
   spinner.succeed(
-    `Found ${chalk.bold(entries.length)} node_modules director${entries.length === 1 ? 'y' : 'ies'} (total: ${chalk.bold(formatSizeRaw(totalBytes))})\n`
+    `Found ${chalk.bold(entries.length)} item${entries.length === 1 ? '' : 's'} (total: ${chalk.bold(formatSizeRaw(totalBytes))})\n`
   );
 
   // Phase 3: Interactive selection
@@ -138,8 +211,33 @@ async function main() {
   console.log('');
   const deleteSpinner = ora({ spinner: 'dots' }).start();
 
+  // Build allowed sets for safety
+  const allowedNames = new Set();
+  const allowedSystemPaths = new Set();
+  for (const id of categoryIds) {
+    const def = ARTIFACT_CATEGORIES[id];
+    if (!def) continue;
+    if (def.isSystem) {
+      allowedSystemPaths.add(def.systemPath);
+      // If expanded, allow subdirectories too
+      if (def.expandSubdirs) {
+        for (const entry of entries) {
+          if (entry.categoryId === id) {
+            allowedSystemPaths.add(entry.path);
+          }
+        }
+      }
+    } else if (def.targetDirs) {
+      for (const d of def.targetDirs) {
+        allowedNames.add(d);
+      }
+    }
+  }
+
   const entryMap = new Map(entries.map((e) => [e.path, e]));
   const { deleted, failed } = await deleteDirectories(selected, {
+    allowedNames,
+    allowedSystemPaths,
     onProgress: (current, total, dirPath) => {
       const entry = entryMap.get(dirPath);
       const name = entry?.projectName || path.basename(path.dirname(dirPath));
@@ -156,7 +254,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  // Handle user cancellation (Ctrl+C during inquirer prompts)
   if (err.name === 'ExitPromptError') {
     process.stdout.write('\x1B[?25h');
     console.log(chalk.dim('\nCancelled.'));

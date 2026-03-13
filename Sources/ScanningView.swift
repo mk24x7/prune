@@ -29,7 +29,7 @@ struct ScanningView: View {
                         .frame(maxWidth: 300)
                 }
 
-                Text("Found \(state.foundCount) \(state.foundCount == 1 ? "directory" : "directories")")
+                Text("Found \(state.foundCount) \(state.foundCount == 1 ? "item" : "items")")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }

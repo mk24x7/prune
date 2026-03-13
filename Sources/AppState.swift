@@ -9,6 +9,7 @@ class AppState: ObservableObject {
     @Published var scanRoot: URL = FileManager.default.homeDirectoryForCurrentUser
     @Published var scanRootDisplay: String = "~"
     @Published var includeHidden: Bool = false
+    @Published var selectedCategories: Set<ArtifactCategory> = Set(ArtifactCategory.allCases)
 
     // Scanning
     @Published var scanProgress: String = ""
@@ -16,10 +17,11 @@ class AppState: ObservableObject {
     @Published var sizingProgress: (completed: Int, total: Int)?
 
     // Results
-    @Published var entries: [NodeModuleEntry] = []
+    @Published var entries: [ArtifactEntry] = []
     @Published var selectedPaths: Set<URL> = []
     @Published var sortField: SortField = .size
     @Published var sortAscending: Bool = false
+    @Published var filterCategory: ArtifactCategory? = nil
 
     // Deleting
     @Published var deletionItems: [DeletionItem] = []
@@ -35,7 +37,7 @@ class AppState: ObservableObject {
     private var scanner = Scanner()
     private var scanTask: Task<Void, Never>?
 
-    var selectedEntries: [NodeModuleEntry] {
+    var selectedEntries: [ArtifactEntry] {
         entries.filter { selectedPaths.contains($0.url) }
     }
 
@@ -47,8 +49,22 @@ class AppState: ObservableObject {
         entries.reduce(0) { $0 + $1.sizeBytes }
     }
 
-    var sortedEntries: [NodeModuleEntry] {
-        entries.sorted { a, b in
+    /// Categories that have results
+    var categoriesWithResults: [ArtifactCategory] {
+        let cats = Set(entries.map(\.category))
+        return ArtifactCategory.allCases.filter { cats.contains($0) }
+    }
+
+    /// Entries filtered by selected category filter and sorted
+    var sortedEntries: [ArtifactEntry] {
+        let filtered: [ArtifactEntry]
+        if let cat = filterCategory {
+            filtered = entries.filter { $0.category == cat }
+        } else {
+            filtered = entries
+        }
+
+        return filtered.sorted { a, b in
             let cmp: Bool
             switch sortField {
             case .size: cmp = a.sizeBytes < b.sizeBytes
@@ -60,9 +76,53 @@ class AppState: ObservableObject {
         }
     }
 
+    /// Per-category size breakdown for summary
+    var categoryBreakdown: [(category: ArtifactCategory, count: Int, bytes: Int64)] {
+        var map: [ArtifactCategory: (count: Int, bytes: Int64)] = [:]
+        for entry in entries {
+            if selectedPaths.contains(entry.url) || phase == .summary {
+                let existing = map[entry.category] ?? (count: 0, bytes: 0)
+                // In summary phase, only count deleted items
+                if phase == .summary {
+                    if deletionItems.first(where: { $0.entry.url == entry.url })?.status == .done {
+                        map[entry.category] = (count: existing.count + 1, bytes: existing.bytes + entry.sizeBytes)
+                    }
+                } else {
+                    map[entry.category] = (count: existing.count + 1, bytes: existing.bytes + entry.sizeBytes)
+                }
+            }
+        }
+        return map.map { (category: $0.key, count: $0.value.count, bytes: $0.value.bytes) }
+            .sorted { $0.bytes > $1.bytes }
+    }
+
+    var hasProjectCategories: Bool {
+        !selectedCategories.intersection(Set(ArtifactCategory.projectLevel)).isEmpty
+    }
+
+    var hasSystemCategories: Bool {
+        !selectedCategories.intersection(Set(ArtifactCategory.systemLevel)).isEmpty
+    }
+
     func setScanRoot(_ url: URL) {
         scanRoot = url
         scanRootDisplay = Formatter.shortenPath(url.path)
+    }
+
+    func toggleCategory(_ category: ArtifactCategory) {
+        if selectedCategories.contains(category) {
+            selectedCategories.remove(category)
+        } else {
+            selectedCategories.insert(category)
+        }
+    }
+
+    func selectAllCategories() {
+        selectedCategories = Set(ArtifactCategory.allCases)
+    }
+
+    func deselectAllCategories() {
+        selectedCategories = []
     }
 
     func startScan() {
@@ -72,52 +132,73 @@ class AppState: ObservableObject {
         sizingProgress = nil
         entries = []
         selectedPaths = []
+        filterCategory = nil
 
         scanTask = Task.detached { [weak self] in
             guard let self else { return }
             let scanner = await self.scanner
             let root = await self.scanRoot
             let includeHidden = await self.includeHidden
+            let categories = await self.selectedCategories
 
-            let paths = await scanner.scan(
-                root: root,
-                includeHidden: includeHidden,
-                onProgress: { dir in
-                    Task { @MainActor [weak self] in
-                        self?.scanProgress = Formatter.shortenPath(dir)
+            var allPaths: [(url: URL, category: ArtifactCategory)] = []
+
+            // Phase 1: Scan for project-level artifacts
+            let projectCategories = categories.intersection(Set(ArtifactCategory.projectLevel))
+            if !projectCategories.isEmpty {
+                let definitions = ArtifactRegistry.definitions(for: projectCategories)
+                let projectPaths = await scanner.scan(
+                    root: root,
+                    definitions: definitions,
+                    includeHidden: includeHidden,
+                    onProgress: { dir in
+                        Task { @MainActor [weak self] in
+                            self?.scanProgress = Formatter.shortenPath(dir)
+                        }
+                    },
+                    onFound: { _, _, count in
+                        Task { @MainActor [weak self] in
+                            self?.foundCount = count
+                        }
                     }
-                },
-                onFound: { _, count in
-                    Task { @MainActor [weak self] in
-                        self?.foundCount = count
-                    }
+                )
+                allPaths.append(contentsOf: projectPaths)
+            }
+
+            // Phase 2: Check system-level artifacts
+            let systemCategories = categories.intersection(Set(ArtifactCategory.systemLevel))
+            if !systemCategories.isEmpty {
+                let systemPaths = scanner.checkSystemArtifacts(categories: systemCategories)
+                let prevCount = allPaths.count
+                allPaths.append(contentsOf: systemPaths)
+                await MainActor.run { [weak self] in
+                    self?.foundCount = (self?.foundCount ?? 0) + (allPaths.count - prevCount)
                 }
-            )
+            }
 
-            // Check if cancelled
             if Task.isCancelled { return }
 
             await MainActor.run { [weak self] in
-                self?.sizingProgress = (completed: 0, total: paths.count)
+                self?.sizingProgress = (completed: 0, total: allPaths.count)
             }
 
-            // Calculate sizes (on background thread)
-            var builtEntries: [NodeModuleEntry] = []
-            for (index, url) in paths.enumerated() {
+            // Phase 3: Calculate sizes
+            var builtEntries: [ArtifactEntry] = []
+            for (index, item) in allPaths.enumerated() {
                 if Task.isCancelled { return }
-                let entry = Sizer.buildEntry(for: url)
+                let entry = Sizer.buildEntry(for: item.url, category: item.category)
                 builtEntries.append(entry)
                 await MainActor.run { [weak self] in
-                    self?.sizingProgress = (completed: index + 1, total: paths.count)
+                    self?.sizingProgress = (completed: index + 1, total: allPaths.count)
                 }
             }
 
             if Task.isCancelled { return }
 
-            // Sort by size descending
             builtEntries.sort { $0.sizeBytes > $1.sizeBytes }
 
             await MainActor.run { [weak self] in
+                guard !Task.isCancelled else { return }
                 self?.entries = builtEntries
                 self?.sizingProgress = nil
                 self?.phase = .results
@@ -136,7 +217,7 @@ class AppState: ObservableObject {
         sizingProgress = nil
     }
 
-    func toggleSelection(_ entry: NodeModuleEntry) {
+    func toggleSelection(_ entry: ArtifactEntry) {
         if selectedPaths.contains(entry.url) {
             selectedPaths.remove(entry.url)
         } else {
@@ -145,11 +226,13 @@ class AppState: ObservableObject {
     }
 
     func selectAll() {
-        selectedPaths = Set(entries.map(\.url))
+        selectedPaths.formUnion(sortedEntries.map(\.url))
     }
 
     func deselectAll() {
-        selectedPaths = []
+        // Only deselect entries visible in current filter
+        let visibleURLs = Set(sortedEntries.map(\.url))
+        selectedPaths.subtract(visibleURLs)
     }
 
     func toggleSort(_ field: SortField) {
@@ -173,7 +256,16 @@ class AppState: ObservableObject {
             let items = await self.deletionItems
             let urls = items.map(\.entry.url)
 
-            let result = Deleter.delete(urls: urls) { current, total, url in
+            // Derive allowed names from the actual entries being deleted, not mutable UI state
+            let entryCategories = Set(items.map(\.entry.category))
+            let allowedNames = ArtifactRegistry.allowedDeletionNames(for: entryCategories)
+            let allowedSystemPaths = ArtifactRegistry.allowedSystemPaths(for: entryCategories)
+
+            let result = Deleter.delete(
+                urls: urls,
+                allowedNames: allowedNames,
+                allowedSystemPaths: allowedSystemPaths
+            ) { current, total, url in
                 Task { @MainActor [weak self] in
                     self?.deletionCurrent = current
                     self?.deletionTotal = total
@@ -181,11 +273,9 @@ class AppState: ObservableObject {
                         self?.deletionItems[idx].status = .inProgress
                     }
                 }
-                // Small delay to let UI update
                 Thread.sleep(forTimeInterval: 0.05)
             }
 
-            // Mark completed items
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 for url in result.deleted {
@@ -218,6 +308,7 @@ class AppState: ObservableObject {
         phase = .idle
         entries = []
         selectedPaths = []
+        filterCategory = nil
         scanProgress = ""
         foundCount = 0
         sizingProgress = nil

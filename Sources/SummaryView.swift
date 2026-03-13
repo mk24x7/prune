@@ -21,9 +21,35 @@ struct SummaryView: View {
                 Text("\(Formatter.formatSize(state.freedBytes)) freed")
                     .font(.system(size: 28, weight: .bold))
 
-                Text("Deleted \(state.deletedCount) of \(state.deletedCount + state.failedCount) directories")
+                Text("Deleted \(state.deletedCount) of \(state.deletedCount + state.failedCount) items")
                     .font(.caption)
                     .foregroundColor(.secondary)
+            }
+
+            // Per-category breakdown
+            if state.categoryBreakdown.count > 1 {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(state.categoryBreakdown, id: \.category) { item in
+                        HStack(spacing: 6) {
+                            Image(systemName: item.category.icon)
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary)
+                                .frame(width: 14)
+                            Text(item.category.rawValue)
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text("\(item.count) items")
+                                .font(.system(size: 10))
+                                .foregroundColor(Color(nsColor: .tertiaryLabelColor))
+                            Text(Formatter.formatSize(item.bytes))
+                                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                .foregroundColor(.primary)
+                        }
+                    }
+                }
+                .padding(.horizontal, 30)
+                .frame(maxWidth: 360)
             }
 
             // Show failures if any

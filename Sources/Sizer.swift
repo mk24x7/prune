@@ -23,37 +23,132 @@ enum Sizer {
         return (Int64(sizeStr) ?? 0) * 1024
     }
 
-    /// Extract project name from the parent directory's package.json.
-    static func projectName(for nodeModulesURL: URL) -> String {
-        let projectDir = nodeModulesURL.deletingLastPathComponent()
-        let fallback = projectDir.lastPathComponent
-        let pkgURL = projectDir.appendingPathComponent("package.json")
+    /// Extract project name for a given artifact URL based on its category.
+    static func projectName(for url: URL, category: ArtifactCategory) -> String {
+        let parentDir = url.deletingLastPathComponent()
+        let fallback = parentDir.lastPathComponent
 
-        guard let data = try? Data(contentsOf: pkgURL),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let name = json["name"] as? String, !name.isEmpty
-        else { return fallback }
+        switch category {
+        case .nodeModules:
+            return readJSONName(at: parentDir.appendingPathComponent("package.json"), fallback: fallback)
 
-        return name
+        case .rust:
+            return readTomlName(at: parentDir.appendingPathComponent("Cargo.toml"), fallback: fallback)
+
+        case .swiftPM:
+            // Try to extract name from Package.swift, fall back to directory name
+            return readSwiftPackageName(at: parentDir.appendingPathComponent("Package.swift"), fallback: fallback)
+
+        case .cocoapods:
+            return fallback
+
+        case .gradleBuild, .gradleCache:
+            return readGradleProjectName(in: parentDir, fallback: fallback)
+
+        case .pythonVenv, .pythonCache:
+            return fallback
+
+        case .xcodeDerivedData:
+            // DerivedData subdirs are like "ProjectName-hashstring"
+            let name = url.lastPathComponent
+            if let dashRange = name.range(of: "-", options: .backwards) {
+                return String(name[name.startIndex..<dashRange.lowerBound])
+            }
+            return name
+
+        case .xcodeArchives:
+            return url.lastPathComponent
+
+        case .xcodeDeviceSupport:
+            return url.lastPathComponent
+
+        case .xcodeCache, .gradleGlobalCache, .homebrewCache:
+            return url.lastPathComponent
+        }
     }
 
-    /// Build a full NodeModuleEntry with size, name, and metadata.
-    static func buildEntry(for url: URL) -> NodeModuleEntry {
+    /// Build a full ArtifactEntry with size, name, and metadata.
+    static func buildEntry(for url: URL, category: ArtifactCategory) -> ArtifactEntry {
         let sizeBytes = diskSize(at: url)
-        let projectName = projectName(for: url)
+        let name = projectName(for: url, category: category)
         let lastModified = (try? FileManager.default.attributesOfItem(
             atPath: url.path
         )[.modificationDate] as? Date) ?? Date()
 
-        return NodeModuleEntry(
+        return ArtifactEntry(
             url: url,
-            projectName: projectName,
+            projectName: name,
             sizeBytes: sizeBytes,
             formattedSize: Formatter.formatSize(sizeBytes),
             shortPath: Formatter.shortenPath(url.path),
             age: Formatter.formatAge(lastModified),
-            lastModified: lastModified
+            lastModified: lastModified,
+            category: category
         )
+    }
+
+    // MARK: - Private Helpers
+
+    private static func readJSONName(at url: URL, fallback: String) -> String {
+        guard let data = try? Data(contentsOf: url),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let name = json["name"] as? String, !name.isEmpty
+        else { return fallback }
+        return name
+    }
+
+    private static func readTomlName(at url: URL, fallback: String) -> String {
+        guard let content = try? String(contentsOf: url, encoding: .utf8) else { return fallback }
+        // Simple parse: look for name = "value" under [package]
+        var inPackage = false
+        for line in content.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed == "[package]" {
+                inPackage = true
+                continue
+            }
+            if trimmed.hasPrefix("[") && trimmed.hasSuffix("]") {
+                inPackage = false
+                continue
+            }
+            if inPackage && (trimmed.hasPrefix("name =") || trimmed.hasPrefix("name=")) {
+                // name = "my-crate"
+                if let eqIndex = trimmed.firstIndex(of: "=") {
+                    var value = String(trimmed[trimmed.index(after: eqIndex)...])
+                        .trimmingCharacters(in: .whitespaces)
+                    value = value.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+                    if !value.isEmpty { return value }
+                }
+            }
+        }
+        return fallback
+    }
+
+    private static func readSwiftPackageName(at url: URL, fallback: String) -> String {
+        guard let content = try? String(contentsOf: url, encoding: .utf8) else { return fallback }
+        // Look for: name: "PackageName"
+        let pattern = #"name:\s*"([^"]+)""#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: content, range: NSRange(content.startIndex..., in: content)),
+              let range = Range(match.range(at: 1), in: content)
+        else { return fallback }
+        return String(content[range])
+    }
+
+    private static func readGradleProjectName(in dir: URL, fallback: String) -> String {
+        // Try settings.gradle or settings.gradle.kts for rootProject.name
+        for filename in ["settings.gradle", "settings.gradle.kts"] {
+            let settingsURL = dir.appendingPathComponent(filename)
+            guard let content = try? String(contentsOf: settingsURL, encoding: .utf8) else { continue }
+            // rootProject.name = "my-project" or rootProject.name = 'my-project'
+            let pattern = #"rootProject\.name\s*=\s*['"]([^'"]+)['"]"#
+            guard let regex = try? NSRegularExpression(pattern: pattern),
+                  let match = regex.firstMatch(in: content, range: NSRange(content.startIndex..., in: content)),
+                  let range = Range(match.range(at: 1), in: content)
+            else { continue }
+            return String(content[range])
+        }
+        return fallback
     }
 }
 

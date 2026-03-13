@@ -9,9 +9,9 @@ struct PruneApp: App {
             ContentView()
                 .environmentObject(appState)
                 .preferredColorScheme(.dark)
-                .frame(minWidth: 600, minHeight: 400)
+                .frame(minWidth: 600, minHeight: 500)
         }
-        .defaultSize(width: 720, height: 540)
+        .defaultSize(width: 720, height: 640)
         .windowStyle(.hiddenTitleBar)
     }
 }

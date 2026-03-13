@@ -2,6 +2,7 @@ import checkbox from '@inquirer/checkbox';
 import confirm from '@inquirer/confirm';
 import chalk from 'chalk';
 import os from 'node:os';
+import { ARTIFACT_CATEGORIES } from './constants.js';
 
 const HOME = os.homedir();
 
@@ -44,7 +45,7 @@ export function formatSizeRaw(bytes) {
 }
 
 /**
- * Format a date as a relative time string (e.g., "3 days ago", "2 months ago").
+ * Format a date as a relative time string.
  */
 export function formatAge(date) {
   const now = Date.now();
@@ -76,25 +77,75 @@ function shortenPath(fullPath) {
 }
 
 /**
- * Prompt the user to select node_modules directories for deletion.
- *
- * @param {Array<{path: string, sizeBytes: number, projectName: string, lastModified: Date}>} entries
- * @returns {Promise<string[]>} - Array of selected paths
+ * Get a colored category label.
+ */
+function categoryLabel(categoryId) {
+  const def = ARTIFACT_CATEGORIES[categoryId];
+  const name = def ? def.name : categoryId;
+
+  const colors = {
+    node: chalk.green,
+    swiftpm: chalk.hex('#F05138'),
+    cocoapods: chalk.red,
+    rust: chalk.hex('#DEA584'),
+    pythonvenv: chalk.yellow,
+    pycache: chalk.yellow,
+    gradle: chalk.cyan,
+    gradlecache: chalk.cyan,
+    'xcode-derived': chalk.blue,
+    'xcode-archives': chalk.blue,
+    'xcode-device-support': chalk.blue,
+    'xcode-cache': chalk.blue,
+    'gradle-global': chalk.cyan,
+    'homebrew-cache': chalk.magenta,
+  };
+
+  const colorFn = colors[categoryId] || chalk.white;
+  return colorFn(`[${name}]`);
+}
+
+/**
+ * Prompt the user to select categories to scan.
+ */
+export async function promptCategories() {
+  const projectCats = Object.values(ARTIFACT_CATEGORIES).filter((c) => !c.isSystem);
+  const systemCats = Object.values(ARTIFACT_CATEGORIES).filter((c) => c.isSystem);
+
+  const choices = [
+    { name: chalk.dim('--- Project Artifacts ---'), value: '__header_project__', disabled: '' },
+    ...projectCats.map((c) => ({ name: c.name, value: c.id, checked: true })),
+    { name: chalk.dim('--- System Caches ---'), value: '__header_system__', disabled: '' },
+    ...systemCats.map((c) => ({ name: c.name, value: c.id, checked: true })),
+  ];
+
+  const selected = await checkbox({
+    message: 'Select artifact types to scan (space=toggle, a=all, enter=confirm)',
+    choices,
+    pageSize: 20,
+    loop: false,
+  });
+
+  return selected.filter((s) => !s.startsWith('__header'));
+}
+
+/**
+ * Prompt the user to select artifact directories for deletion.
  */
 export async function promptSelection(entries) {
   const choices = entries.map((entry) => {
     const size = formatSize(entry.sizeBytes);
     const age = chalk.dim(formatAge(entry.lastModified));
     const shortPath = chalk.dim(shortenPath(entry.path));
+    const catLabel = categoryLabel(entry.categoryId);
 
     return {
-      name: `${entry.projectName} (${size}) - ${age}\n    ${shortPath}`,
+      name: `${catLabel} ${entry.projectName} (${size}) - ${age}\n    ${shortPath}`,
       value: entry.path,
     };
   });
 
   const selected = await checkbox({
-    message: 'Select directories to delete (space=toggle, a=all, enter=confirm)',
+    message: 'Select items to delete (space=toggle, a=all, enter=confirm)',
     choices,
     pageSize: 15,
     loop: false,
@@ -105,10 +156,6 @@ export async function promptSelection(entries) {
 
 /**
  * Prompt the user to confirm deletion.
- *
- * @param {string[]} selectedPaths - Paths selected for deletion
- * @param {Array<{path: string, sizeBytes: number}>} entries - All entries (for size lookup)
- * @returns {Promise<boolean>}
  */
 export async function promptConfirm(selectedPaths, entries) {
   const entryMap = new Map(entries.map((e) => [e.path, e]));
@@ -117,12 +164,29 @@ export async function promptConfirm(selectedPaths, entries) {
     0
   );
 
+  // Show per-category breakdown
+  const catBytes = {};
+  for (const p of selectedPaths) {
+    const entry = entryMap.get(p);
+    if (entry) {
+      const catId = entry.categoryId;
+      catBytes[catId] = (catBytes[catId] || 0) + entry.sizeBytes;
+    }
+  }
+
   console.log(
-    `\nSelected ${chalk.bold(selectedPaths.length)} director${selectedPaths.length === 1 ? 'y' : 'ies'} totaling ${chalk.bold.red(formatSizeRaw(totalBytes))}\n`
+    `\nSelected ${chalk.bold(selectedPaths.length)} item${selectedPaths.length === 1 ? '' : 's'} totaling ${chalk.bold.red(formatSizeRaw(totalBytes))}`
   );
 
+  for (const [catId, bytes] of Object.entries(catBytes).sort((a, b) => b[1] - a[1])) {
+    const def = ARTIFACT_CATEGORIES[catId];
+    console.log(`  ${def ? def.name : catId}: ${formatSizeRaw(bytes)}`);
+  }
+
+  console.log('');
+
   return confirm({
-    message: 'Delete these directories?',
+    message: 'Delete these items?',
     default: false,
   });
 }
@@ -139,16 +203,53 @@ export function printSummary(deleted, failed, entries) {
 
   if (deleted.length > 0) {
     console.log(
-      `\n${chalk.green('Done!')} Freed ${chalk.bold(formatSizeRaw(freedBytes))} across ${deleted.length} director${deleted.length === 1 ? 'y' : 'ies'}.`
+      `\n${chalk.green('Done!')} Freed ${chalk.bold(formatSizeRaw(freedBytes))} across ${deleted.length} item${deleted.length === 1 ? '' : 's'}.`
     );
+
+    // Per-category breakdown
+    const catBytes = {};
+    for (const p of deleted) {
+      const entry = entryMap.get(p);
+      if (entry) {
+        const catId = entry.categoryId;
+        catBytes[catId] = (catBytes[catId] || 0) + entry.sizeBytes;
+      }
+    }
+    if (Object.keys(catBytes).length > 1) {
+      for (const [catId, bytes] of Object.entries(catBytes).sort((a, b) => b[1] - a[1])) {
+        const def = ARTIFACT_CATEGORIES[catId];
+        console.log(`  ${def ? def.name : catId}: ${formatSizeRaw(bytes)}`);
+      }
+    }
   }
 
   if (failed.length > 0) {
     console.log(
-      `\n${chalk.red('Failed')} to delete ${failed.length} director${failed.length === 1 ? 'y' : 'ies'}:`
+      `\n${chalk.red('Failed')} to delete ${failed.length} item${failed.length === 1 ? '' : 's'}:`
     );
     for (const { path: p, error } of failed) {
       console.log(`  ${shortenPath(p)} - ${error}`);
     }
   }
+}
+
+/**
+ * List available categories.
+ */
+export function listCategories() {
+  console.log(chalk.bold('\nAvailable artifact categories:\n'));
+
+  console.log(chalk.dim('  Project Artifacts (found by scanning):'));
+  for (const cat of Object.values(ARTIFACT_CATEGORIES).filter((c) => !c.isSystem)) {
+    console.log(`    ${chalk.bold(cat.id.padEnd(14))} ${cat.name}`);
+  }
+
+  console.log(chalk.dim('\n  System Caches (fixed locations):'));
+  for (const cat of Object.values(ARTIFACT_CATEGORIES).filter((c) => c.isSystem)) {
+    console.log(`    ${chalk.bold(cat.id.padEnd(22))} ${cat.name}`);
+  }
+
+  console.log(chalk.dim('\n  Use: prune --categories node,rust,xcode-derived'));
+  console.log(chalk.dim('  Or:  prune --all'));
+  console.log('');
 }

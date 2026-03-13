@@ -4,19 +4,51 @@ struct ResultsView: View {
     @EnvironmentObject var state: AppState
     @State private var showConfirm = false
 
+    private var displayEntries: [ArtifactEntry] {
+        state.sortedEntries
+    }
+
     private var allSelected: Bool {
-        !state.entries.isEmpty && state.selectedPaths.count == state.entries.count
+        !displayEntries.isEmpty && displayEntries.allSatisfy { state.selectedPaths.contains($0.url) }
     }
 
     private var someSelected: Bool {
-        !state.selectedPaths.isEmpty && state.selectedPaths.count < state.entries.count
+        let selectedInView = displayEntries.filter { state.selectedPaths.contains($0.url) }
+        return !selectedInView.isEmpty && selectedInView.count < displayEntries.count
     }
 
     var body: some View {
         VStack(spacing: 0) {
+            // Category filter bar
+            if state.categoriesWithResults.count > 1 {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        FilterChip(
+                            label: "All",
+                            count: state.entries.count,
+                            isSelected: state.filterCategory == nil,
+                            onTap: { state.filterCategory = nil }
+                        )
+
+                        ForEach(state.categoriesWithResults) { category in
+                            FilterChip(
+                                label: category.rawValue,
+                                count: state.entries.filter { $0.category == category }.count,
+                                isSelected: state.filterCategory == category,
+                                onTap: { state.filterCategory = category }
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                }
+                .background(.ultraThinMaterial)
+
+                Divider()
+            }
+
             // Toolbar
             HStack {
-                // Select all
                 Button(action: {
                     if allSelected { state.deselectAll() } else { state.selectAll() }
                 }) {
@@ -24,7 +56,7 @@ struct ResultsView: View {
                         Image(systemName: allSelected ? "checkmark.square.fill" :
                                 someSelected ? "minus.square.fill" : "square")
                             .foregroundColor(allSelected || someSelected ? .blue : .secondary)
-                        Text("Select all (\(state.entries.count))")
+                        Text("Select all (\(displayEntries.count))")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -39,7 +71,6 @@ struct ResultsView: View {
                         .foregroundColor(.secondary)
                 }
 
-                // Sort
                 Menu {
                     ForEach(SortField.allCases, id: \.self) { field in
                         Button(action: { state.toggleSort(field) }) {
@@ -72,7 +103,7 @@ struct ResultsView: View {
             // List
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    ForEach(state.sortedEntries) { entry in
+                    ForEach(displayEntries) { entry in
                         ResultRowView(
                             entry: entry,
                             isSelected: state.selectedPaths.contains(entry.url),
@@ -87,7 +118,7 @@ struct ResultsView: View {
 
             // Footer
             HStack {
-                Text("\(state.entries.count) directories -- \(Formatter.formatSize(state.totalSize)) total")
+                Text("\(state.entries.count) items -- \(Formatter.formatSize(state.totalSize)) total")
                     .font(.caption)
                     .foregroundColor(.secondary)
 
@@ -117,18 +148,27 @@ struct ResultsView: View {
             isPresented: $showConfirm,
             titleVisibility: .visible
         ) {
-            Button("Delete \(state.selectedPaths.count) directories (\(Formatter.formatSize(state.selectedTotalSize)))", role: .destructive) {
+            Button("Delete \(state.selectedPaths.count) items (\(Formatter.formatSize(state.selectedTotalSize)))", role: .destructive) {
                 state.startDeletion()
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This will delete \(state.selectedPaths.count) node_modules directories totaling \(Formatter.formatSize(state.selectedTotalSize)). You can reinstall them later with npm install.")
+            Text(confirmationMessage)
         }
+    }
+
+    private var confirmationMessage: String {
+        let count = state.selectedPaths.count
+        let size = Formatter.formatSize(state.selectedTotalSize)
+        let categories = Set(state.selectedEntries.map(\.category))
+        let categoryNames = categories.map(\.rawValue).sorted().joined(separator: ", ")
+        let hints = categories.map(\.reinstallHint).joined(separator: ", ")
+        return "This will delete \(count) items totaling \(size) across: \(categoryNames). You can restore them later (\(hints))."
     }
 }
 
 struct ResultRowView: View {
-    let entry: NodeModuleEntry
+    let entry: ArtifactEntry
     let isSelected: Bool
     let onToggle: () -> Void
 
@@ -142,6 +182,7 @@ struct ResultRowView: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack {
+                        CategoryBadge(category: entry.category)
                         Text(entry.projectName)
                             .font(.system(.body, weight: .medium))
                             .foregroundColor(.primary)
@@ -166,6 +207,66 @@ struct ResultRowView: View {
             .padding(.vertical, 8)
             .contentShape(Rectangle())
             .background(isSelected ? Color.blue.opacity(0.05) : Color.clear)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+struct CategoryBadge: View {
+    let category: ArtifactCategory
+
+    private var color: Color {
+        switch category {
+        case .nodeModules: return .green
+        case .swiftPM: return .orange
+        case .cocoapods: return .red
+        case .rust: return .brown
+        case .pythonVenv, .pythonCache: return .yellow
+        case .gradleBuild, .gradleCache, .gradleGlobalCache: return .teal
+        case .xcodeDerivedData, .xcodeArchives, .xcodeDeviceSupport, .xcodeCache: return .blue
+        case .homebrewCache: return .purple
+        }
+    }
+
+    var body: some View {
+        Text(category.rawValue)
+            .font(.system(size: 9, weight: .medium))
+            .foregroundColor(color)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background(color.opacity(0.12))
+            .cornerRadius(3)
+    }
+}
+
+struct FilterChip: View {
+    let label: String
+    let count: Int
+    let isSelected: Bool
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 4) {
+                Text(label)
+                    .font(.system(size: 10, weight: .medium))
+                Text("\(count)")
+                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .foregroundColor(isSelected ? .white : .secondary)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(isSelected ? Color.blue : Color.gray.opacity(0.2))
+                    .cornerRadius(4)
+            }
+            .foregroundColor(isSelected ? .blue : .secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(isSelected ? Color.blue.opacity(0.1) : Color.clear)
+            .cornerRadius(6)
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(isSelected ? Color.blue.opacity(0.3) : Color.gray.opacity(0.2), lineWidth: 1)
+            )
         }
         .buttonStyle(.plain)
     }

@@ -9,6 +9,7 @@ Package.resolved
 # Build artifacts
 *.app
 *.dmg
+*.zip
 
 # CLI
 cli/node_modules/

@@ -218,13 +218,19 @@ struct CategoryBadge: View {
     private var color: Color {
         switch category {
         case .nodeModules: return .green
+        case .nextBuild, .nuxtBuild, .svelteKit, .astroBuild, .angularCache,
+             .turboCache, .viteCache, .parcelCache: return .mint
         case .swiftPM: return .orange
         case .cocoapods: return .red
-        case .rust: return .brown
-        case .pythonVenv, .pythonCache: return .yellow
+        case .rust, .cargoRegistry: return .brown
+        case .pythonVenv, .pythonCache, .pytestCache, .mypyCache,
+             .ruffCache, .toxCache, .pipCache: return .yellow
         case .gradleBuild, .gradleCache, .gradleGlobalCache: return .teal
         case .xcodeDerivedData, .xcodeArchives, .xcodeDeviceSupport, .xcodeCache: return .blue
         case .homebrewCache: return .purple
+        case .npmCache, .yarnCache, .pnpmStore, .bunCache: return .green
+        case .goModCache: return .cyan
+        case .puppeteerCache, .playwrightCache, .electronCache: return .pink
         }
     }
 

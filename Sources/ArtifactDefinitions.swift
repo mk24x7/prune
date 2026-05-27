@@ -35,6 +35,46 @@ enum ArtifactRegistry {
             siblingFiles: []
         ),
         ArtifactDefinition(
+            category: .nextBuild,
+            targetDirNames: [".next"],
+            siblingFiles: ["next.config.js", "next.config.mjs", "next.config.ts", "package.json"]
+        ),
+        ArtifactDefinition(
+            category: .nuxtBuild,
+            targetDirNames: [".nuxt", ".output"],
+            siblingFiles: ["nuxt.config.js", "nuxt.config.ts", "nuxt.config.mjs"]
+        ),
+        ArtifactDefinition(
+            category: .svelteKit,
+            targetDirNames: [".svelte-kit"],
+            siblingFiles: ["svelte.config.js", "svelte.config.mjs", "svelte.config.ts"]
+        ),
+        ArtifactDefinition(
+            category: .astroBuild,
+            targetDirNames: [".astro"],
+            siblingFiles: ["astro.config.mjs", "astro.config.js", "astro.config.ts"]
+        ),
+        ArtifactDefinition(
+            category: .angularCache,
+            targetDirNames: [".angular"],
+            siblingFiles: ["angular.json"]
+        ),
+        ArtifactDefinition(
+            category: .turboCache,
+            targetDirNames: [".turbo"],
+            siblingFiles: ["turbo.json", "package.json"]
+        ),
+        ArtifactDefinition(
+            category: .viteCache,
+            targetDirNames: [".vite"],
+            siblingFiles: ["vite.config.js", "vite.config.ts", "vite.config.mjs", "package.json"]
+        ),
+        ArtifactDefinition(
+            category: .parcelCache,
+            targetDirNames: [".parcel-cache"],
+            siblingFiles: ["package.json"]
+        ),
+        ArtifactDefinition(
             category: .swiftPM,
             targetDirNames: [".build"],
             siblingFiles: ["Package.swift"]
@@ -58,6 +98,26 @@ enum ArtifactRegistry {
             category: .pythonCache,
             targetDirNames: ["__pycache__"],
             siblingFiles: []
+        ),
+        ArtifactDefinition(
+            category: .pytestCache,
+            targetDirNames: [".pytest_cache"],
+            siblingFiles: []
+        ),
+        ArtifactDefinition(
+            category: .mypyCache,
+            targetDirNames: [".mypy_cache"],
+            siblingFiles: []
+        ),
+        ArtifactDefinition(
+            category: .ruffCache,
+            targetDirNames: [".ruff_cache"],
+            siblingFiles: []
+        ),
+        ArtifactDefinition(
+            category: .toxCache,
+            targetDirNames: [".tox"],
+            siblingFiles: ["tox.ini", "pyproject.toml"]
         ),
         ArtifactDefinition(
             category: .gradleBuild,
@@ -101,6 +161,56 @@ enum ArtifactRegistry {
         SystemArtifactPath(
             category: .homebrewCache,
             url: home.appendingPathComponent("Library/Caches/Homebrew"),
+            expandSubdirectories: false
+        ),
+        SystemArtifactPath(
+            category: .npmCache,
+            url: home.appendingPathComponent(".npm"),
+            expandSubdirectories: false
+        ),
+        SystemArtifactPath(
+            category: .yarnCache,
+            url: home.appendingPathComponent("Library/Caches/Yarn"),
+            expandSubdirectories: false
+        ),
+        SystemArtifactPath(
+            category: .pnpmStore,
+            url: home.appendingPathComponent("Library/pnpm/store"),
+            expandSubdirectories: false
+        ),
+        SystemArtifactPath(
+            category: .bunCache,
+            url: home.appendingPathComponent(".bun/install/cache"),
+            expandSubdirectories: false
+        ),
+        SystemArtifactPath(
+            category: .pipCache,
+            url: home.appendingPathComponent("Library/Caches/pip"),
+            expandSubdirectories: false
+        ),
+        SystemArtifactPath(
+            category: .cargoRegistry,
+            url: home.appendingPathComponent(".cargo/registry"),
+            expandSubdirectories: false
+        ),
+        SystemArtifactPath(
+            category: .goModCache,
+            url: home.appendingPathComponent("go/pkg/mod"),
+            expandSubdirectories: false
+        ),
+        SystemArtifactPath(
+            category: .puppeteerCache,
+            url: home.appendingPathComponent(".cache/puppeteer"),
+            expandSubdirectories: false
+        ),
+        SystemArtifactPath(
+            category: .playwrightCache,
+            url: home.appendingPathComponent("Library/Caches/ms-playwright"),
+            expandSubdirectories: false
+        ),
+        SystemArtifactPath(
+            category: .electronCache,
+            url: home.appendingPathComponent("Library/Caches/electron"),
             expandSubdirectories: false
         ),
     ]

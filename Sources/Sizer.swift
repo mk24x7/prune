@@ -32,11 +32,14 @@ enum Sizer {
         case .nodeModules:
             return readJSONName(at: parentDir.appendingPathComponent("package.json"), fallback: fallback)
 
+        case .nextBuild, .nuxtBuild, .svelteKit, .astroBuild, .angularCache,
+             .turboCache, .viteCache, .parcelCache:
+            return readJSONName(at: parentDir.appendingPathComponent("package.json"), fallback: fallback)
+
         case .rust:
             return readTomlName(at: parentDir.appendingPathComponent("Cargo.toml"), fallback: fallback)
 
         case .swiftPM:
-            // Try to extract name from Package.swift, fall back to directory name
             return readSwiftPackageName(at: parentDir.appendingPathComponent("Package.swift"), fallback: fallback)
 
         case .cocoapods:
@@ -45,7 +48,7 @@ enum Sizer {
         case .gradleBuild, .gradleCache:
             return readGradleProjectName(in: parentDir, fallback: fallback)
 
-        case .pythonVenv, .pythonCache:
+        case .pythonVenv, .pythonCache, .pytestCache, .mypyCache, .ruffCache, .toxCache:
             return fallback
 
         case .xcodeDerivedData:
@@ -56,13 +59,13 @@ enum Sizer {
             }
             return name
 
-        case .xcodeArchives:
+        case .xcodeArchives, .xcodeDeviceSupport:
             return url.lastPathComponent
 
-        case .xcodeDeviceSupport:
-            return url.lastPathComponent
-
-        case .xcodeCache, .gradleGlobalCache, .homebrewCache:
+        case .xcodeCache, .gradleGlobalCache, .homebrewCache,
+             .npmCache, .yarnCache, .pnpmStore, .bunCache, .pipCache,
+             .cargoRegistry, .goModCache, .puppeteerCache,
+             .playwrightCache, .electronCache:
             return url.lastPathComponent
         }
     }

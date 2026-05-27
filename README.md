@@ -27,11 +27,23 @@ A native macOS app that scans your filesystem for developer build artifacts and 
 | Category | What it finds | How it detects |
 |----------|--------------|----------------|
 | **Node Modules** | `node_modules` directories | Direct name match |
+| **Next.js Build** | `.next` directories | Requires `next.config.*` or `package.json` sibling |
+| **Nuxt Build** | `.nuxt`, `.output` directories | Requires `nuxt.config.*` sibling |
+| **SvelteKit Build** | `.svelte-kit` directories | Requires `svelte.config.*` sibling |
+| **Astro Build** | `.astro` directories | Requires `astro.config.*` sibling |
+| **Angular Cache** | `.angular` directories | Requires `angular.json` sibling |
+| **Turbo Cache** | `.turbo` directories | Requires `turbo.json` or `package.json` sibling |
+| **Vite Cache** | `.vite` directories | Requires `vite.config.*` or `package.json` sibling |
+| **Parcel Cache** | `.parcel-cache` directories | Requires `package.json` sibling |
 | **Swift PM** | `.build` directories | Requires `Package.swift` sibling |
 | **CocoaPods** | `Pods` directories | Requires `Podfile` sibling |
 | **Rust** | `target` directories | Requires `Cargo.toml` sibling |
 | **Python Venv** | `venv`, `.venv` directories | Requires Python project file sibling |
 | **Python Cache** | `__pycache__` directories | Direct name match |
+| **Pytest Cache** | `.pytest_cache` directories | Direct name match |
+| **Mypy Cache** | `.mypy_cache` directories | Direct name match |
+| **Ruff Cache** | `.ruff_cache` directories | Direct name match |
+| **Tox Cache** | `.tox` directories | Requires `tox.ini` or `pyproject.toml` sibling |
 | **Gradle Build** | `build` directories | Requires `build.gradle` / `build.gradle.kts` sibling |
 | **Gradle Cache** | `.gradle` directories | Requires Gradle project file sibling |
 
@@ -45,6 +57,16 @@ A native macOS app that scans your filesystem for developer build artifacts and 
 | **Xcode Cache** | `~/Library/Caches/com.apple.dt.Xcode` |
 | **Gradle Global Cache** | `~/.gradle/caches` |
 | **Homebrew Cache** | `~/Library/Caches/Homebrew` |
+| **npm Cache** | `~/.npm` |
+| **Yarn Cache** | `~/Library/Caches/Yarn` |
+| **pnpm Store** | `~/Library/pnpm/store` |
+| **Bun Cache** | `~/.bun/install/cache` |
+| **pip Cache** | `~/Library/Caches/pip` |
+| **Cargo Registry Cache** | `~/.cargo/registry` |
+| **Go Module Cache** | `~/go/pkg/mod` |
+| **Puppeteer Cache** | `~/.cache/puppeteer` |
+| **Playwright Browsers** | `~/Library/Caches/ms-playwright` |
+| **Electron Cache** | `~/Library/Caches/electron` |
 
 ## Screenshots
 

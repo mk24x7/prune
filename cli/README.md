@@ -1,4 +1,4 @@
-# prune-cli
+# @mk24x7/prune
 
 Command-line version of [Prune](https://github.com/mk24x7/prune): find and
 safely remove regenerable developer artifacts on macOS (`node_modules`, Rust

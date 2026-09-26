@@ -1,0 +1,164 @@
+name: Release
+
+on:
+  push:
+    # Also matches prerelease tags such as v4.0.0-rc.1.
+    tags: ['v*.*.*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish GitHub release
+    runs-on: macos-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # Full history: build.sh uses the commit count as CFBundleVersion.
+          fetch-depth: 0
+
+      - name: Derive version
+        id: meta
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          case "$version" in
+            *-*) prerelease=true ;;
+            *) prerelease=false ;;
+          esac
+          {
+            echo "version=$version"
+            # CFBundleShortVersionString must be numeric: drop any -prerelease suffix.
+            echo "app_version=${version%%-*}"
+            echo "prerelease=$prerelease"
+            echo "build_number=$(git rev-list --count HEAD)"
+          } >> "$GITHUB_OUTPUT"
+          echo "Version $version (prerelease: $prerelease)"
+
+      - name: Version parity
+        run: scripts/check-versions.sh "$GITHUB_REF_NAME"
+
+      - name: Install create-dmg
+        run: brew install create-dmg
+
+      - name: Build universal app
+        run: ./build.sh
+        env:
+          VERSION: ${{ steps.meta.outputs.app_version }}
+          BUILD_NUMBER: ${{ steps.meta.outputs.build_number }}
+          ARCHS: arm64 x86_64
+          OUT_DIR: dist
+
+      - name: Inspect app
+        run: |
+          lipo -archs dist/Prune.app/Contents/MacOS/Prune
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' dist/Prune.app/Contents/Info.plist
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' dist/Prune.app/Contents/Info.plist
+          codesign --verify --deep --strict --verbose=2 dist/Prune.app
+
+      - name: Package zip, dmg and checksums
+        run: ./package.sh
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          OUT_DIR: dist
+
+      - name: Extract release notes from CHANGELOG.md
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          PRERELEASE: ${{ steps.meta.outputs.prerelease }}
+        run: |
+          awk -v ver="$VERSION" '
+            index($0, "## [" ver "]") == 1 { found = 1; next }
+            found && /^## \[/ { exit }
+            found && /^\[[^]]+\]: / { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          if ! grep -q '[^[:space:]]' release-notes.md; then
+            if [ "$PRERELEASE" = "true" ]; then
+              echo "Prerelease build of Prune $VERSION. See CHANGELOG.md for the changes planned for this release." > release-notes.md
+            else
+              echo "::error file=CHANGELOG.md::No '## [$VERSION]' section found in CHANGELOG.md"
+              exit 1
+            fi
+          fi
+          {
+            echo ""
+            echo "### Verifying the download"
+            echo ""
+            echo "Prune is ad-hoc signed and not notarized. Compare the checksum before opening:"
+            echo ""
+            echo '```'
+            echo "shasum -a 256 -c SHA256SUMS.txt --ignore-missing"
+            echo '```'
+          } >> release-notes.md
+          /bin/cat release-notes.md
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          PRERELEASE: ${{ steps.meta.outputs.prerelease }}
+        run: |
+          flags=()
+          if [ "$PRERELEASE" = "true" ]; then
+            flags+=(--prerelease)
+          fi
+          gh release create "$GITHUB_REF_NAME" \
+            --verify-tag \
+            --title "Prune $VERSION" \
+            --notes-file release-notes.md \
+            "${flags[@]}" \
+            "dist/Prune-$VERSION-macos-universal.zip" \
+            "dist/Prune-$VERSION-macos-universal.dmg" \
+            dist/SHA256SUMS.txt
+
+  publish-npm:
+    name: Trigger npm publish
+    needs: release
+    if: needs.release.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      # A release created with GITHUB_TOKEN does not fire `release` events for
+      # other workflows, so publish-npm.yml is dispatched explicitly. It runs as
+      # its own top-level workflow, which is what npm trusted publishing checks.
+      - name: Dispatch publish-npm.yml
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run publish-npm.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "$GITHUB_REF_NAME" \
+            -f tag="$GITHUB_REF_NAME"
+
+  bump-tap:
+    name: Update Homebrew tap
+    needs: release
+    if: needs.release.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      # HOMEBREW_TAP_TOKEN is a fine-grained personal access token scoped to the
+      # mk24x7/homebrew-tap repository only, with Contents: read and write. The
+      # default GITHUB_TOKEN cannot push to another repository.
+      - name: Check out mk24x7/homebrew-tap
+        uses: actions/checkout@v6
+        with:
+          repository: mk24x7/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: Bump formulae and cask
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          scripts/bump.sh "$VERSION"

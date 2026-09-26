@@ -1,0 +1,126 @@
+name: CI
+
+on:
+  push:
+    branches: [main, v4]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  swift:
+    name: Swift build and test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # build.sh derives the build number from the commit count.
+          fetch-depth: 0
+
+      - name: Toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      - name: Cache SwiftPM build directory
+        uses: actions/cache@v6
+        with:
+          path: .build
+          key: swiftpm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Package.swift', 'Package.resolved', 'Sources/**', 'Definitions/**') }}
+          restore-keys: |
+            swiftpm-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: swift build
+        run: swift build -c release
+
+      - name: swift test
+        run: swift test
+
+      - name: Assemble app bundle
+        run: ./build.sh
+        env:
+          OUT_DIR: dist
+
+      - name: Bundle contains artifact definitions
+        run: |
+          defs="dist/Prune.app/Contents/Resources/Prune_PruneDefinitions.bundle/artifacts.json"
+          if [ ! -f "$defs" ]; then
+            echo "::error::$defs is missing"
+            exit 1
+          fi
+
+      - name: Verify code signature
+        run: codesign --verify --deep --strict --verbose=2 dist/Prune.app
+
+      - name: Version parity
+        run: scripts/check-versions.sh
+
+  node:
+    name: CLI tests
+    # du, trash and statfs semantics are macOS specific.
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: cli
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: cli/package-lock.json
+
+      - name: npm ci
+        run: npm ci
+
+      - name: Check definitions
+        run: node scripts/check-definitions.js
+
+      - name: npm test
+        run: npm test
+
+      - name: CLI smoke test
+        run: node prune.js --help
+
+      - name: Validate artifacts.json against the schema
+        working-directory: .
+        run: node Definitions/validate.mjs
+
+  shell:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: shellcheck
+        run: |
+          shellcheck --version
+          shellcheck build.sh dmg.sh package.sh scripts/*.sh
+
+  hygiene:
+    name: Repository hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: cli/package-lock.json
+
+      - name: ASCII only
+        run: scripts/check-ascii.sh
+
+      - name: Install CLI dependencies
+        run: npm ci --prefix cli
+
+      - name: README artifact tables in sync
+        run: scripts/check-readme-tables.sh

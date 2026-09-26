@@ -1,0 +1,75 @@
+name: Publish CLI to npm
+
+# The first publish of prune-cli must be done manually from a maintainer
+# machine (`cd cli && npm login && npm publish --access public`), because npm
+# only allows configuring a trusted publisher for a package that already
+# exists. After that, configure the trusted publisher on npmjs.com:
+#   owner mk24x7, repository prune, workflow publish-npm.yml, environment npm.
+# Publishing then uses OIDC (no NPM_TOKEN secret) and provenance is attached
+# automatically.
+#
+# Triggers: release.yml dispatches this workflow after it creates a release
+# (events caused by GITHUB_TOKEN do not start other workflows); the `release`
+# trigger covers releases published by hand in the GitHub UI.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to publish (for example v4.0.0)
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: publish-npm
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: npm publish
+    if: github.event_name == 'workflow_dispatch' || !github.event.release.prerelease
+    runs-on: ubuntu-latest
+    environment: npm
+    env:
+      TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Update npm (trusted publishing needs npm 11.5.1 or later)
+        run: npm install -g npm@latest
+
+      - name: Refuse prerelease tags
+        run: |
+          case "$TAG" in
+            *-*) echo "::error::$TAG is a prerelease tag; not publishing to npm"; exit 1 ;;
+          esac
+
+      - name: npm ci
+        working-directory: cli
+        run: npm ci
+
+      - name: Package version matches tag
+        working-directory: cli
+        run: |
+          pkg_version="$(node -p 'require("./package.json").version')"
+          if [ "v$pkg_version" != "$TAG" ]; then
+            echo "::error file=cli/package.json::version $pkg_version does not match tag $TAG"
+            exit 1
+          fi
+
+      - name: npm publish
+        working-directory: cli
+        run: npm publish --access public

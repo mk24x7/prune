@@ -6,7 +6,7 @@
     <key>CFBundleExecutable</key>
     <string>Prune</string>
     <key>CFBundleIdentifier</key>
-    <string>com.prune.app</string>
+    <string>com.mk24x7.prune</string>
     <key>CFBundleName</key>
     <string>Prune</string>
     <key>CFBundleDisplayName</key>
@@ -14,9 +14,9 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>3.1.0</string>
+    <string>4.0.0</string>
     <key>CFBundleVersion</key>
-    <string>4</string>
+    <string>5</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>NSHighResolutionCapable</key>
@@ -27,5 +27,15 @@
     <string>public.app-category.utilities</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>Prune scans folders you choose for build artifacts such as node_modules and build caches.</string>
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>Prune scans folders you choose for build artifacts such as node_modules and build caches.</string>
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>Prune scans folders you choose for build artifacts and leftover installers.</string>
+    <key>NSRemovableVolumesUsageDescription</key>
+    <string>Prune scans folders you choose on external drives for build artifacts.</string>
+    <key>NSNetworkVolumesUsageDescription</key>
+    <string>Prune scans folders you choose on network volumes for build artifacts.</string>
 </dict>
 </plist>

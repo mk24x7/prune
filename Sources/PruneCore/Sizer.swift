@@ -1,199 +1,210 @@
 import Foundation
 
-enum Sizer {
-    /// Calculate disk size using `du -sk` (fast, handles large dirs well).
-    static func diskSize(at url: URL) -> Int64 {
-        let process = Process()
-        let pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/du")
-        process.arguments = ["-sk", url.path]
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            return 0
+public enum Sizer {
+    /// Allocated size of a directory tree via `/usr/bin/du -sk`.
+    ///
+    /// du exits non-zero when it cannot read part of the tree but still prints
+    /// the total of what it could read, so stdout is parsed regardless of the
+    /// exit status. Returns nil (size unknown) only when du cannot be launched,
+    /// is terminated (including by task cancellation), or prints nothing usable.
+    public static func diskSize(at url: URL) async -> Int64? {
+        if Task.isCancelled { return nil }
+        let box = DuProcess(path: url.path)
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Int64?, Never>) in
+                box.start { continuation.resume(returning: $0) }
+            }
+        } onCancel: {
+            box.cancel()
         }
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard let output = String(data: data, encoding: .utf8) else { return 0 }
-        let sizeStr = output.split(separator: "\t").first ?? "0"
-        return (Int64(sizeStr) ?? 0) * 1024
     }
 
-    /// Extract project name for a given artifact URL based on its category.
-    static func projectName(for url: URL, category: ArtifactCategory) -> String {
-        let parentDir = url.deletingLastPathComponent()
-        let fallback = parentDir.lastPathComponent
+    /// Allocated (on-disk) size of a single regular file, matching what du
+    /// reports. Sparse files such as Docker.raw have a far larger apparent size
+    /// (64 GB) than the space they occupy, so the apparent size is never used.
+    public static func fileSize(at url: URL) -> Int64? {
+        if let allocated = try? url.resourceValues(forKeys: [.totalFileAllocatedSizeKey]).totalFileAllocatedSize {
+            return Int64(allocated)
+        }
+        var info = stat()
+        guard lstat(url.path, &info) == 0 else { return nil }
+        return Int64(info.st_blocks) * 512
+    }
 
-        switch category {
-        case .nodeModules:
-            return readJSONName(at: parentDir.appendingPathComponent("package.json"), fallback: fallback)
+    /// Human-facing project name for an artifact, driven by the type's `nameFrom`.
+    public static func projectName(for url: URL, type: ArtifactType) -> String {
+        let parent = url.deletingLastPathComponent()
+        let parentName = parent.lastPathComponent
 
-        case .nextBuild, .nuxtBuild, .svelteKit, .astroBuild, .angularCache,
-             .turboCache, .viteCache, .parcelCache:
-            return readJSONName(at: parentDir.appendingPathComponent("package.json"), fallback: fallback)
-
-        case .rust:
-            return readTomlName(at: parentDir.appendingPathComponent("Cargo.toml"), fallback: fallback)
-
-        case .swiftPM:
-            return readSwiftPackageName(at: parentDir.appendingPathComponent("Package.swift"), fallback: fallback)
-
-        case .cocoapods:
-            return fallback
-
-        case .gradleBuild, .gradleCache:
-            return readGradleProjectName(in: parentDir, fallback: fallback)
-
-        case .pythonVenv, .pythonCache, .pytestCache, .mypyCache, .ruffCache, .toxCache:
-            return fallback
-
-        case .xcodeDerivedData:
-            // DerivedData subdirs are like "ProjectName-hashstring"
+        switch type.nameFrom {
+        case .packageJson:
+            return readJSONName(at: parent.appendingPathComponent("package.json")) ?? parentName
+        case .cargoToml:
+            return readTomlPackageName(at: parent.appendingPathComponent("Cargo.toml")) ?? parentName
+        case .packageSwift:
+            return readSwiftPackageName(at: parent.appendingPathComponent("Package.swift")) ?? parentName
+        case .gradleSettings:
+            return readGradleProjectName(in: parent) ?? parentName
+        case .derivedData:
+            // DerivedData folders are named "<Project>-<hash>".
             let name = url.lastPathComponent
-            if let dashRange = name.range(of: "-", options: .backwards) {
-                return String(name[name.startIndex..<dashRange.lowerBound])
+            if let dash = name.range(of: "-", options: .backwards), dash.lowerBound != name.startIndex {
+                return String(name[name.startIndex..<dash.lowerBound])
             }
             return name
-
-        case .xcodeArchives, .xcodeDeviceSupport:
+        case .dirname:
             return url.lastPathComponent
-
-        case .xcodeCache, .gradleGlobalCache, .homebrewCache,
-             .npmCache, .yarnCache, .pnpmStore, .bunCache, .pipCache,
-             .cargoRegistry, .goModCache, .puppeteerCache,
-             .playwrightCache, .electronCache:
-            return url.lastPathComponent
+        case .parentDirname:
+            return parentName
         }
     }
 
-    /// Build a full ArtifactEntry with size, name, and metadata.
-    static func buildEntry(for url: URL, category: ArtifactCategory) -> ArtifactEntry {
-        let sizeBytes = diskSize(at: url)
-        let name = projectName(for: url, category: category)
-        let lastModified = (try? FileManager.default.attributesOfItem(
-            atPath: url.path
-        )[.modificationDate] as? Date) ?? Date()
+    /// max(mtime of the item, mtimes of its direct children). Files use their own mtime.
+    public static func lastModified(of url: URL, isFile: Bool) -> Date {
+        let fm = FileManager.default
+        var newest = (try? fm.attributesOfItem(atPath: url.path)[.modificationDate] as? Date) ?? nil
+        if !isFile, let children = try? fm.contentsOfDirectory(
+            at: url, includingPropertiesForKeys: [.contentModificationDateKey], options: []
+        ) {
+            for child in children {
+                guard let date = try? child.resourceValues(forKeys: [.contentModificationDateKey])
+                    .contentModificationDate else { continue }
+                if newest == nil || date > newest! { newest = date }
+            }
+        }
+        return newest ?? Date()
+    }
 
+    /// Measure and describe one artifact.
+    public static func buildEntry(for url: URL, type: ArtifactType) async -> ArtifactEntry {
+        let isFile = type.entriesAreFiles
+        let size: Int64? = isFile ? fileSize(at: url) : await diskSize(at: url)
         return ArtifactEntry(
             url: url,
-            projectName: name,
-            sizeBytes: sizeBytes,
-            formattedSize: Formatter.formatSize(sizeBytes),
-            shortPath: Formatter.shortenPath(url.path),
-            age: Formatter.formatAge(lastModified),
-            lastModified: lastModified,
-            category: category
+            typeId: type.id,
+            projectName: projectName(for: url, type: type),
+            sizeBytes: size ?? 0,
+            sizeUnknown: size == nil,
+            lastModified: lastModified(of: url, isFile: isFile)
         )
     }
 
-    // MARK: - Private Helpers
+    // MARK: - Manifest readers (nil means "fall back")
 
-    private static func readJSONName(at url: URL, fallback: String) -> String {
+    static func readJSONName(at url: URL) -> String? {
         guard let data = try? Data(contentsOf: url),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let name = json["name"] as? String, !name.isEmpty
-        else { return fallback }
-        return name
+              let name = json["name"] as? String
+        else { return nil }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
-    private static func readTomlName(at url: URL, fallback: String) -> String {
-        guard let content = try? String(contentsOf: url, encoding: .utf8) else { return fallback }
-        // Simple parse: look for name = "value" under [package]
+    static func readTomlPackageName(at url: URL) -> String? {
+        guard let content = try? String(contentsOf: url, encoding: .utf8) else { return nil }
         var inPackage = false
         for line in content.components(separatedBy: .newlines) {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed == "[package]" {
-                inPackage = true
+            if trimmed.hasPrefix("[") {
+                inPackage = trimmed == "[package]"
                 continue
             }
-            if trimmed.hasPrefix("[") && trimmed.hasSuffix("]") {
-                inPackage = false
-                continue
-            }
-            if inPackage && (trimmed.hasPrefix("name =") || trimmed.hasPrefix("name=")) {
-                // name = "my-crate"
-                if let eqIndex = trimmed.firstIndex(of: "=") {
-                    var value = String(trimmed[trimmed.index(after: eqIndex)...])
-                        .trimmingCharacters(in: .whitespaces)
-                    value = value.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
-                    if !value.isEmpty { return value }
-                }
-            }
+            guard inPackage, trimmed.hasPrefix("name") else { continue }
+            let rest = trimmed.dropFirst(4).trimmingCharacters(in: .whitespaces)
+            guard rest.hasPrefix("=") else { continue }
+            let value = rest.dropFirst().trimmingCharacters(in: .whitespaces)
+            guard let quote = value.first, quote == "\"" || quote == "'" else { return nil }
+            let body = value.dropFirst()
+            guard let end = body.firstIndex(of: quote) else { return nil }
+            let name = String(body[body.startIndex..<end])
+            return name.isEmpty ? nil : name
         }
-        return fallback
+        return nil
     }
 
-    private static func readSwiftPackageName(at url: URL, fallback: String) -> String {
-        guard let content = try? String(contentsOf: url, encoding: .utf8) else { return fallback }
-        // Look for: name: "PackageName"
-        let pattern = #"name:\s*"([^"]+)""#
+    static func readSwiftPackageName(at url: URL) -> String? {
+        guard let content = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        return firstCapture(#"Package\s*\(\s*name\s*:\s*"([^"]+)""#, in: content)
+    }
+
+    static func readGradleProjectName(in dir: URL) -> String? {
+        for filename in ["settings.gradle", "settings.gradle.kts"] {
+            guard let content = try? String(contentsOf: dir.appendingPathComponent(filename), encoding: .utf8)
+            else { continue }
+            if let name = firstCapture(#"rootProject\.name\s*=\s*['"]([^'"]+)['"]"#, in: content) {
+                return name
+            }
+        }
+        return nil
+    }
+
+    private static func firstCapture(_ pattern: String, in content: String) -> String? {
         guard let regex = try? NSRegularExpression(pattern: pattern),
               let match = regex.firstMatch(in: content, range: NSRange(content.startIndex..., in: content)),
               let range = Range(match.range(at: 1), in: content)
-        else { return fallback }
-        return String(content[range])
-    }
-
-    private static func readGradleProjectName(in dir: URL, fallback: String) -> String {
-        // Try settings.gradle or settings.gradle.kts for rootProject.name
-        for filename in ["settings.gradle", "settings.gradle.kts"] {
-            let settingsURL = dir.appendingPathComponent(filename)
-            guard let content = try? String(contentsOf: settingsURL, encoding: .utf8) else { continue }
-            // rootProject.name = "my-project" or rootProject.name = 'my-project'
-            let pattern = #"rootProject\.name\s*=\s*['"]([^'"]+)['"]"#
-            guard let regex = try? NSRegularExpression(pattern: pattern),
-                  let match = regex.firstMatch(in: content, range: NSRange(content.startIndex..., in: content)),
-                  let range = Range(match.range(at: 1), in: content)
-            else { continue }
-            return String(content[range])
-        }
-        return fallback
+        else { return nil }
+        let value = String(content[range])
+        return value.isEmpty ? nil : value
     }
 }
 
-enum Formatter {
-    static func formatSize(_ bytes: Int64) -> String {
-        if bytes >= 1_073_741_824 {
-            return String(format: "%.1f GB", Double(bytes) / 1_073_741_824)
-        } else if bytes >= 1_048_576 {
-            return String(format: "%.1f MB", Double(bytes) / 1_048_576)
+/// Owns one `du -sk` process and makes launch, completion and cancellation
+/// race-free: `terminate()` must never be sent to a process that has not been
+/// launched, and the completion must fire exactly once.
+private final class DuProcess: @unchecked Sendable {
+    private let lock = NSLock()
+    private let process = Process()
+    private let pipe = Pipe()
+    private var launched = false
+    private var cancelled = false
+
+    init(path: String) {
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/du")
+        process.arguments = ["-sk", path]
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+    }
+
+    func start(completion: @escaping @Sendable (Int64?) -> Void) {
+        let pipe = self.pipe
+        process.terminationHandler = { process in
+            // du prints a single short line, so reading after exit cannot block on a full pipe.
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            if process.terminationReason == .uncaughtSignal {
+                completion(nil)
+                return
+            }
+            completion(Self.parse(data))
         }
-        return String(format: "%.1f KB", Double(bytes) / 1024)
-    }
 
-    static func shortenPath(_ path: String) -> String {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        if path.hasPrefix(home) {
-            return "~" + path.dropFirst(home.count)
+        lock.lock()
+        defer { lock.unlock() }
+        if cancelled {
+            completion(nil)
+            return
         }
-        return path
+        do {
+            try process.run()
+            launched = true
+        } catch {
+            completion(nil)
+        }
     }
 
-    static func formatAge(_ date: Date) -> String {
-        let seconds = Int(-date.timeIntervalSinceNow)
-        let days = seconds / 86400
-        let weeks = days / 7
-        let months = days / 30
-        let years = days / 365
-
-        if years > 0 { return "\(years) year\(years > 1 ? "s" : "") ago" }
-        if months > 0 { return "\(months) month\(months > 1 ? "s" : "") ago" }
-        if weeks > 0 { return "\(weeks) week\(weeks > 1 ? "s" : "") ago" }
-        if days > 0 { return "\(days) day\(days > 1 ? "s" : "") ago" }
-        return "today"
+    func cancel() {
+        lock.lock()
+        defer { lock.unlock() }
+        cancelled = true
+        if launched && process.isRunning {
+            process.terminate()
+        }
     }
 
-    static func sizeSeverity(_ bytes: Int64) -> SizeSeverity {
-        if bytes > 500 * 1_048_576 { return .large }
-        if bytes > 100 * 1_048_576 { return .medium }
-        return .small
+    static func parse(_ data: Data) -> Int64? {
+        guard let output = String(data: data, encoding: .utf8),
+              let field = output.split(whereSeparator: { $0 == "\t" || $0 == " " || $0 == "\n" }).first,
+              let kilobytes = Int64(field)
+        else { return nil }
+        return kilobytes * 1024
     }
-}
-
-enum SizeSeverity {
-    case small, medium, large
 }

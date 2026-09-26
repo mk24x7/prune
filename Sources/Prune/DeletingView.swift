@@ -1,4 +1,5 @@
 import SwiftUI
+import PruneCore
 
 struct DeletingView: View {
     @EnvironmentObject var state: AppState
@@ -16,7 +17,7 @@ struct DeletingView: View {
         VStack(spacing: 16) {
             Spacer()
 
-            Text("Deleting... \(state.deletionCurrent) of \(state.deletionTotal)")
+            Text("\(state.batchMode == .trash ? "Moving to Trash" : "Deleting")... \(state.deletionCurrent) of \(state.deletionTotal)")
                 .font(.headline)
 
             VStack(spacing: 6) {

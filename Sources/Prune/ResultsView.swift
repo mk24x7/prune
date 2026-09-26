@@ -1,4 +1,5 @@
 import SwiftUI
+import PruneCore
 
 struct ResultsView: View {
     @EnvironmentObject var state: AppState
@@ -25,17 +26,17 @@ struct ResultsView: View {
                     HStack(spacing: 6) {
                         FilterChip(
                             label: "All",
-                            count: state.entries.count,
+                            count: state.visibleEntries.count,
                             isSelected: state.filterCategory == nil,
                             onTap: { state.filterCategory = nil }
                         )
 
-                        ForEach(state.categoriesWithResults) { category in
+                        ForEach(state.categoriesWithResults) { type in
                             FilterChip(
-                                label: category.rawValue,
-                                count: state.entries.filter { $0.category == category }.count,
-                                isSelected: state.filterCategory == category,
-                                onTap: { state.filterCategory = category }
+                                label: type.displayName,
+                                count: state.visibleEntries.filter { $0.typeId == type.id }.count,
+                                isSelected: state.filterCategory == type.id,
+                                onTap: { state.filterCategory = type.id }
                             )
                         }
                     }
@@ -106,6 +107,7 @@ struct ResultsView: View {
                     ForEach(displayEntries) { entry in
                         ResultRowView(
                             entry: entry,
+                            type: state.type(for: entry),
                             isSelected: state.selectedPaths.contains(entry.url),
                             onToggle: { state.toggleSelection(entry) }
                         )
@@ -116,9 +118,14 @@ struct ResultsView: View {
 
             Divider()
 
+            if state.deniedCount > 0 {
+                DeniedNotice(count: state.deniedCount, examples: state.deniedDirectories)
+                Divider()
+            }
+
             // Footer
             HStack {
-                Text("\(state.entries.count) items -- \(Formatter.formatSize(state.totalSize)) total")
+                Text(footerSummary)
                     .font(.caption)
                     .foregroundColor(.secondary)
 
@@ -130,7 +137,7 @@ struct ResultsView: View {
                 .buttonStyle(.bordered)
                 .controlSize(.small)
 
-                Button("Delete Selected (\(state.selectedPaths.count))") {
+                Button(deleteButtonLabel) {
                     showConfirm = true
                 }
                 .buttonStyle(.borderedProminent)
@@ -148,8 +155,15 @@ struct ResultsView: View {
             isPresented: $showConfirm,
             titleVisibility: .visible
         ) {
-            Button("Delete \(state.selectedPaths.count) items (\(Formatter.formatSize(state.selectedTotalSize)))", role: .destructive) {
-                state.startDeletion()
+            Button(
+                "Move \(state.selectedEntries.count) \(state.selectedEntries.count == 1 ? "item" : "items") to Trash (\(Formatter.formatSize(state.selectedTotalSize)))",
+                role: .destructive
+            ) {
+                state.startDeletion(mode: .trash)
+            }
+            .keyboardShortcut(.defaultAction)
+            Button("Delete Permanently", role: .destructive) {
+                state.startDeletion(mode: .permanent)
             }
             Button("Cancel", role: .cancel) {}
         } message: {
@@ -157,18 +171,83 @@ struct ResultsView: View {
         }
     }
 
+    private var footerSummary: String {
+        var text = "\(state.visibleEntries.count) items -- \(Formatter.formatSize(state.totalSize)) total"
+        if state.minAgeDays > 0 {
+            let hidden = state.entries.count - state.visibleEntries.count
+            text += " (older than \(state.minAgeDays) days"
+            text += hidden > 0 ? ", \(hidden) newer hidden)" : ")"
+        }
+        return text
+    }
+
+    private var deleteButtonLabel: String {
+        let hidden = state.hiddenSelectedCount
+        let base = "Delete Selected (\(state.selectedEntries.count))"
+        return hidden > 0 ? base + ", \(hidden) hidden by filter" : base
+    }
+
     private var confirmationMessage: String {
-        let count = state.selectedPaths.count
+        let selected = state.selectedEntries
         let size = Formatter.formatSize(state.selectedTotalSize)
-        let categories = Set(state.selectedEntries.map(\.category))
-        let categoryNames = categories.map(\.rawValue).sorted().joined(separator: ", ")
-        let hints = categories.map(\.reinstallHint).joined(separator: ", ")
-        return "This will delete \(count) items totaling \(size) across: \(categoryNames). You can restore them later (\(hints))."
+        var counts: [String: Int] = [:]
+        for entry in selected { counts[entry.typeId, default: 0] += 1 }
+        let types = state.definitions.types.filter { counts[$0.id] != nil }
+        let breakdown = types.map { "\($0.displayName): \(counts[$0.id] ?? 0)" }.joined(separator: "\n")
+
+        var message = ""
+        let irreplaceable = types.filter { !$0.regenerable }
+        if !irreplaceable.isEmpty {
+            let names = irreplaceable.map(\.displayName).joined(separator: ", ")
+            message += "WARNING: \(names) cannot be regenerated.\n\n"
+        }
+        message += "\(selected.count) \(selected.count == 1 ? "item" : "items") totaling \(size):\n\(breakdown)"
+        let unknown = selected.filter(\.sizeUnknown).count
+        if unknown > 0 {
+            message += "\n\n\(unknown) \(unknown == 1 ? "item has" : "items have") an unknown size and \(unknown == 1 ? "is" : "are") not counted in the total."
+        }
+        let hints = types.filter(\.regenerable).map { "\($0.displayName): \($0.reinstallHint)" }
+        if !hints.isEmpty {
+            message += "\n\nTo restore later:\n" + hints.joined(separator: "\n")
+        }
+        message += "\n\nMoving to Trash lets you put items back until you empty the Trash. Deleting permanently frees the space immediately."
+        return message
+    }
+}
+
+/// Shown when the scan hit folders it was not allowed to read.
+struct DeniedNotice: View {
+    let count: Int
+    let examples: [URL]
+
+    static let privacySettingsURL = URL(
+        string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 11))
+                .foregroundColor(.orange)
+            Text("\(count) \(count == 1 ? "folder" : "folders") could not be read")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .help(examples.prefix(10).map { Formatter.shortenPath($0.path) }.joined(separator: "\n"))
+            Spacer()
+            Button("Open Privacy Settings") {
+                NSWorkspace.shared.open(Self.privacySettingsURL)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(.ultraThinMaterial)
     }
 }
 
 struct ResultRowView: View {
     let entry: ArtifactEntry
+    let type: ArtifactType?
     let isSelected: Bool
     let onToggle: () -> Void
 
@@ -182,13 +261,13 @@ struct ResultRowView: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack {
-                        CategoryBadge(category: entry.category)
+                        CategoryBadge(type: type, fallback: entry.typeId)
                         Text(entry.projectName)
                             .font(.system(.body, weight: .medium))
                             .foregroundColor(.primary)
                             .lineLimit(1)
                         Spacer()
-                        SizeBadge(bytes: entry.sizeBytes, formatted: entry.formattedSize)
+                        SizeBadge(bytes: entry.sizeBytes, formatted: entry.formattedSize, unknown: entry.sizeUnknown)
                     }
                     HStack {
                         Text(entry.shortPath)
@@ -213,29 +292,13 @@ struct ResultRowView: View {
 }
 
 struct CategoryBadge: View {
-    let category: ArtifactCategory
+    let type: ArtifactType?
+    let fallback: String
 
-    private var color: Color {
-        switch category {
-        case .nodeModules: return .green
-        case .nextBuild, .nuxtBuild, .svelteKit, .astroBuild, .angularCache,
-             .turboCache, .viteCache, .parcelCache: return .mint
-        case .swiftPM: return .orange
-        case .cocoapods: return .red
-        case .rust, .cargoRegistry: return .brown
-        case .pythonVenv, .pythonCache, .pytestCache, .mypyCache,
-             .ruffCache, .toxCache, .pipCache: return .yellow
-        case .gradleBuild, .gradleCache, .gradleGlobalCache: return .teal
-        case .xcodeDerivedData, .xcodeArchives, .xcodeDeviceSupport, .xcodeCache: return .blue
-        case .homebrewCache: return .purple
-        case .npmCache, .yarnCache, .pnpmStore, .bunCache: return .green
-        case .goModCache: return .cyan
-        case .puppeteerCache, .playwrightCache, .electronCache: return .pink
-        }
-    }
+    private var color: Color { Palette.color(type?.color) }
 
     var body: some View {
-        Text(category.rawValue)
+        Text(type?.displayName ?? fallback)
             .font(.system(size: 9, weight: .medium))
             .foregroundColor(color)
             .padding(.horizontal, 5)
@@ -281,8 +344,10 @@ struct FilterChip: View {
 struct SizeBadge: View {
     let bytes: Int64
     let formatted: String
+    var unknown: Bool = false
 
     private var bgColor: Color {
+        if unknown { return Color.gray.opacity(0.15) }
         switch Formatter.sizeSeverity(bytes) {
         case .large: return Color.red.opacity(0.15)
         case .medium: return Color.orange.opacity(0.15)
@@ -291,6 +356,7 @@ struct SizeBadge: View {
     }
 
     private var textColor: Color {
+        if unknown { return .secondary }
         switch Formatter.sizeSeverity(bytes) {
         case .large: return Color(red: 0.95, green: 0.3, blue: 0.3)
         case .medium: return Color(red: 0.95, green: 0.7, blue: 0.2)

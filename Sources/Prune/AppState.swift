@@ -1,15 +1,19 @@
 import Foundation
 import SwiftUI
+import PruneCore
 
 @MainActor
-class AppState: ObservableObject {
+final class AppState: ObservableObject {
+    let definitions: Definitions
+
     @Published var phase: AppPhase = .idle
 
     // Config
     @Published var scanRoot: URL = FileManager.default.homeDirectoryForCurrentUser
     @Published var scanRootDisplay: String = "~"
     @Published var includeHidden: Bool = false
-    @Published var selectedCategories: Set<ArtifactCategory> = Set(ArtifactCategory.allCases)
+    @Published var selectedCategories: Set<String>
+    @Published var rootError: String?
 
     // Scanning
     @Published var scanProgress: String = ""
@@ -21,53 +25,86 @@ class AppState: ObservableObject {
     @Published var selectedPaths: Set<URL> = []
     @Published var sortField: SortField = .size
     @Published var sortAscending: Bool = false
-    @Published var filterCategory: ArtifactCategory? = nil
+    @Published var filterCategory: String? = nil
+    @Published var deniedCount: Int = 0
+    @Published var deniedDirectories: [URL] = []
+    /// Minimum age filter captured from `@AppStorage("minAgeDays")` when the scan starts.
+    @Published var minAgeDays: Int = 0
 
     // Deleting
     @Published var deletionItems: [DeletionItem] = []
     @Published var deletionCurrent: Int = 0
     @Published var deletionTotal: Int = 0
 
-    // Summary
-    @Published var deletedCount: Int = 0
-    @Published var failedCount: Int = 0
-    @Published var freedBytes: Int64 = 0
-    @Published var failures: [(path: String, error: String)] = []
+    // Deletion results
+    @Published var deleteMode: DeleteMode = .trash
+    /// Mode of the batch currently running (differs from `deleteMode` during a permanent fallback).
+    @Published var batchMode: DeleteMode = .trash
+    @Published var outcomes: [DeletionOutcome] = []
+    @Published var measuredFreedBytes: Int64 = 0
+    @Published var trashUnsupportedEntries: [ArtifactEntry] = []
+    @Published var pendingPermanentFallback: Bool = false
 
-    private var scanner = Scanner()
     private var scanTask: Task<Void, Never>?
+
+    /// Maximum number of concurrent `du` processes while sizing.
+    nonisolated static let sizingConcurrency = 6
+
+    static let minAgeDaysKey = "minAgeDays"
+
+    init(definitions: Definitions) {
+        self.definitions = definitions
+        self.selectedCategories = definitions.defaultEnabledIds
+    }
+
+    func type(for entry: ArtifactEntry) -> ArtifactType? {
+        definitions.type(id: entry.typeId)
+    }
 
     var selectedEntries: [ArtifactEntry] {
         entries.filter { selectedPaths.contains($0.url) }
     }
 
     var selectedTotalSize: Int64 {
-        selectedEntries.reduce(0) { $0 + $1.sizeBytes }
+        selectedEntries.reduce(0) { $0 + $1.countedBytes }
+    }
+
+    /// Entries that pass the minimum age filter.
+    var visibleEntries: [ArtifactEntry] {
+        guard minAgeDays > 0 else { return entries }
+        let cutoff = Date().addingTimeInterval(-Double(minAgeDays) * 86400)
+        return entries.filter { $0.lastModified <= cutoff }
     }
 
     var totalSize: Int64 {
-        entries.reduce(0) { $0 + $1.sizeBytes }
+        visibleEntries.reduce(0) { $0 + $1.countedBytes }
     }
 
-    /// Categories that have results
-    var categoriesWithResults: [ArtifactCategory] {
-        let cats = Set(entries.map(\.category))
-        return ArtifactCategory.allCases.filter { cats.contains($0) }
+    /// Types that have results, in definition order.
+    var categoriesWithResults: [ArtifactType] {
+        let ids = Set(visibleEntries.map(\.typeId))
+        return definitions.types.filter { ids.contains($0.id) }
     }
 
-    /// Entries filtered by selected category filter and sorted
+    /// Selected entries that the current category filter hides from the list.
+    var hiddenSelectedCount: Int {
+        let shown = Set(sortedEntries.map(\.url))
+        return selectedEntries.filter { !shown.contains($0.url) }.count
+    }
+
+    /// Entries filtered by minimum age and the category filter, then sorted.
     var sortedEntries: [ArtifactEntry] {
         let filtered: [ArtifactEntry]
-        if let cat = filterCategory {
-            filtered = entries.filter { $0.category == cat }
+        if let id = filterCategory {
+            filtered = visibleEntries.filter { $0.typeId == id }
         } else {
-            filtered = entries
+            filtered = visibleEntries
         }
 
         return filtered.sorted { a, b in
             let cmp: Bool
             switch sortField {
-            case .size: cmp = a.sizeBytes < b.sizeBytes
+            case .size: cmp = a.countedBytes < b.countedBytes
             case .name: cmp = a.projectName.localizedCaseInsensitiveCompare(b.projectName) == .orderedAscending
             case .age: cmp = a.lastModified < b.lastModified
             case .path: cmp = a.shortPath < b.shortPath
@@ -76,32 +113,18 @@ class AppState: ObservableObject {
         }
     }
 
-    /// Per-category size breakdown for summary
-    var categoryBreakdown: [(category: ArtifactCategory, count: Int, bytes: Int64)] {
-        var map: [ArtifactCategory: (count: Int, bytes: Int64)] = [:]
+    /// Per-type size breakdown: selected entries before deletion, deleted entries in the summary.
+    var categoryBreakdown: [(typeId: String, count: Int, bytes: Int64)] {
+        var map: [String: (count: Int, bytes: Int64)] = [:]
+        let doneURLs = Set(outcomes.filter(\.isSuccess).map(\.url))
         for entry in entries {
-            if selectedPaths.contains(entry.url) || phase == .summary {
-                let existing = map[entry.category] ?? (count: 0, bytes: 0)
-                // In summary phase, only count deleted items
-                if phase == .summary {
-                    if deletionItems.first(where: { $0.entry.url == entry.url })?.status == .done {
-                        map[entry.category] = (count: existing.count + 1, bytes: existing.bytes + entry.sizeBytes)
-                    }
-                } else {
-                    map[entry.category] = (count: existing.count + 1, bytes: existing.bytes + entry.sizeBytes)
-                }
-            }
+            let include = phase == .summary ? doneURLs.contains(entry.url) : selectedPaths.contains(entry.url)
+            guard include else { continue }
+            let existing = map[entry.typeId] ?? (count: 0, bytes: 0)
+            map[entry.typeId] = (count: existing.count + 1, bytes: existing.bytes + entry.countedBytes)
         }
-        return map.map { (category: $0.key, count: $0.value.count, bytes: $0.value.bytes) }
+        return map.map { (typeId: $0.key, count: $0.value.count, bytes: $0.value.bytes) }
             .sorted { $0.bytes > $1.bytes }
-    }
-
-    var hasProjectCategories: Bool {
-        !selectedCategories.intersection(Set(ArtifactCategory.projectLevel)).isEmpty
-    }
-
-    var hasSystemCategories: Bool {
-        !selectedCategories.intersection(Set(ArtifactCategory.systemLevel)).isEmpty
     }
 
     func setScanRoot(_ url: URL) {
@@ -109,16 +132,16 @@ class AppState: ObservableObject {
         scanRootDisplay = Formatter.shortenPath(url.path)
     }
 
-    func toggleCategory(_ category: ArtifactCategory) {
-        if selectedCategories.contains(category) {
-            selectedCategories.remove(category)
+    func toggleCategory(_ id: String) {
+        if selectedCategories.contains(id) {
+            selectedCategories.remove(id)
         } else {
-            selectedCategories.insert(category)
+            selectedCategories.insert(id)
         }
     }
 
     func selectAllCategories() {
-        selectedCategories = Set(ArtifactCategory.allCases)
+        selectedCategories = Set(definitions.types.map(\.id))
     }
 
     func deselectAllCategories() {
@@ -126,6 +149,13 @@ class AppState: ObservableObject {
     }
 
     func startScan() {
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: scanRoot.path, isDirectory: &isDir), isDir.boolValue else {
+            rootError = "\(scanRoot.path) is not an existing folder. Choose another folder to scan."
+            phase = .idle
+            return
+        }
+
         phase = .scanning
         scanProgress = ""
         foundCount = 0
@@ -133,84 +163,119 @@ class AppState: ObservableObject {
         entries = []
         selectedPaths = []
         filterCategory = nil
+        deniedCount = 0
+        deniedDirectories = []
+        minAgeDays = max(0, UserDefaults.standard.integer(forKey: Self.minAgeDaysKey))
 
-        scanTask = Task.detached { [weak self] in
-            guard let self else { return }
-            let scanner = await self.scanner
-            let root = await self.scanRoot
-            let includeHidden = await self.includeHidden
-            let categories = await self.selectedCategories
+        let definitions = self.definitions
+        let root = scanRoot
+        let includeHidden = self.includeHidden
+        let selected = selectedCategories
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let env = ProcessInfo.processInfo.environment
 
-            var allPaths: [(url: URL, category: ArtifactCategory)] = []
+        scanTask = Task.detached(priority: .userInitiated) { [weak self] in
+            let scanner = Scanner()
+            let projectTypes = definitions.projectTypes.filter { selected.contains($0.id) }
+            let otherTypes = definitions.types.filter { $0.kind != .project && selected.contains($0.id) }
+            // Never descend into system caches during the project walk, whether
+            // or not they are selected, so nothing is found twice.
+            let systemPaths = Set(definitions.systemTypes.compactMap {
+                definitions.resolvedSystemURL(for: $0, env: env, home: home)
+            })
 
-            // Phase 1: Scan for project-level artifacts
-            let projectCategories = categories.intersection(Set(ArtifactCategory.projectLevel))
-            if !projectCategories.isEmpty {
-                let definitions = ArtifactRegistry.definitions(for: projectCategories)
-                let projectPaths = await scanner.scan(
+            var found: [(url: URL, typeId: String)] = []
+            var denied = ScanResult()
+            if !projectTypes.isEmpty {
+                let result = scanner.scan(
                     root: root,
-                    definitions: definitions,
+                    types: projectTypes,
+                    rules: definitions.scan,
                     includeHidden: includeHidden,
+                    home: home,
+                    extraSkipPaths: systemPaths,
                     onProgress: { dir in
-                        Task { @MainActor [weak self] in
-                            self?.scanProgress = Formatter.shortenPath(dir)
-                        }
+                        let short = Formatter.shortenPath(dir)
+                        Task { @MainActor [weak self] in self?.scanProgress = short }
                     },
                     onFound: { _, _, count in
-                        Task { @MainActor [weak self] in
-                            self?.foundCount = count
-                        }
+                        Task { @MainActor [weak self] in self?.foundCount = count }
                     }
                 )
-                allPaths.append(contentsOf: projectPaths)
+                found = result.found
+                denied = result
             }
-
-            // Phase 2: Check system-level artifacts
-            let systemCategories = categories.intersection(Set(ArtifactCategory.systemLevel))
-            if !systemCategories.isEmpty {
-                let systemPaths = scanner.checkSystemArtifacts(categories: systemCategories)
-                let prevCount = allPaths.count
-                allPaths.append(contentsOf: systemPaths)
-                await MainActor.run { [weak self] in
-                    self?.foundCount = (self?.foundCount ?? 0) + (allPaths.count - prevCount)
-                }
-            }
-
             if Task.isCancelled { return }
 
+            found.append(contentsOf: scanner.checkSystemArtifacts(
+                types: otherTypes, definitions: definitions, env: env, home: home))
+            var seen = Set<URL>()
+            found = found.filter { seen.insert($0.url.standardizedFileURL).inserted }
+            let total = found.count
+            let deniedCount = denied.deniedCount
+            let deniedDirectories = denied.deniedDirectories
             await MainActor.run { [weak self] in
-                self?.sizingProgress = (completed: 0, total: allPaths.count)
+                self?.foundCount = total
+                self?.sizingProgress = (completed: 0, total: total)
             }
 
-            // Phase 3: Calculate sizes
-            var builtEntries: [ArtifactEntry] = []
-            for (index, item) in allPaths.enumerated() {
-                if Task.isCancelled { return }
-                let entry = Sizer.buildEntry(for: item.url, category: item.category)
-                builtEntries.append(entry)
-                await MainActor.run { [weak self] in
-                    self?.sizingProgress = (completed: index + 1, total: allPaths.count)
+            let built = await Self.sizeEntries(found, definitions: definitions) { completed in
+                Task { @MainActor [weak self] in
+                    guard let self, self.phase == .scanning else { return }
+                    self.sizingProgress = (completed: completed, total: total)
                 }
             }
-
             if Task.isCancelled { return }
 
-            builtEntries.sort { $0.sizeBytes > $1.sizeBytes }
-
+            let sorted = built.sorted { $0.countedBytes > $1.countedBytes }
             await MainActor.run { [weak self] in
-                guard !Task.isCancelled else { return }
-                self?.entries = builtEntries
-                self?.sizingProgress = nil
-                self?.phase = .results
+                guard let self, !Task.isCancelled, self.phase == .scanning else { return }
+                self.entries = sorted
+                self.deniedCount = deniedCount
+                self.deniedDirectories = deniedDirectories
+                self.sizingProgress = nil
+                self.phase = .results
             }
+        }
+    }
+
+    /// Size every found item with at most `sizingConcurrency` du processes in flight.
+    nonisolated static func sizeEntries(
+        _ items: [(url: URL, typeId: String)],
+        definitions: Definitions,
+        onCompleted: (Int) -> Void
+    ) async -> [ArtifactEntry] {
+        await withTaskGroup(of: ArtifactEntry?.self) { group in
+            var pending = items.makeIterator()
+            func addNext() -> Bool {
+                guard let item = pending.next() else { return false }
+                group.addTask {
+                    guard let type = definitions.type(id: item.typeId) else { return nil }
+                    return await Sizer.buildEntry(for: item.url, type: type)
+                }
+                return true
+            }
+            for _ in 0..<sizingConcurrency where !addNext() { break }
+
+            var results: [ArtifactEntry] = []
+            var completed = 0
+            while let entry = await group.next() {
+                if let entry { results.append(entry) }
+                completed += 1
+                onCompleted(completed)
+                if Task.isCancelled {
+                    group.cancelAll()
+                    continue
+                }
+                _ = addNext()
+            }
+            return results
         }
     }
 
     func cancelScan() {
         scanTask?.cancel()
-        Task {
-            await scanner.cancel()
-        }
+        scanTask = nil
         phase = .idle
         scanProgress = ""
         foundCount = 0
@@ -230,9 +295,8 @@ class AppState: ObservableObject {
     }
 
     func deselectAll() {
-        // Only deselect entries visible in current filter
-        let visibleURLs = Set(sortedEntries.map(\.url))
-        selectedPaths.subtract(visibleURLs)
+        // Only deselect entries visible in the current filter.
+        selectedPaths.subtract(Set(sortedEntries.map(\.url)))
     }
 
     func toggleSort(_ field: SortField) {
@@ -244,63 +308,143 @@ class AppState: ObservableObject {
         }
     }
 
-    func startDeletion() {
+    func startDeletion(mode: DeleteMode) {
         let selected = selectedEntries
-        deletionItems = selected.map { DeletionItem(entry: $0) }
+        guard !selected.isEmpty else { return }
+        deleteMode = mode
+        outcomes = []
+        measuredFreedBytes = 0
+        trashUnsupportedEntries = []
+        pendingPermanentFallback = false
+        runDeletion(selected, mode: mode)
+    }
+
+    /// The user agreed to delete the items the Trash could not take.
+    func confirmPermanentFallback() {
+        let entries = trashUnsupportedEntries
+        pendingPermanentFallback = false
+        trashUnsupportedEntries = []
+        guard !entries.isEmpty else { return }
+        runDeletion(entries, mode: .permanent)
+    }
+
+    func declinePermanentFallback() {
+        pendingPermanentFallback = false
+    }
+
+    private func runDeletion(_ batch: [ArtifactEntry], mode: DeleteMode) {
+        // Re-runs (permanent fallback) keep the rows of the first pass visible.
+        let batchURLs = Set(batch.map(\.url))
+        if deletionItems.isEmpty || !batchURLs.isSubset(of: Set(deletionItems.map(\.entry.url))) {
+            deletionItems = batch.map { DeletionItem(entry: $0) }
+        } else {
+            for index in deletionItems.indices where batchURLs.contains(deletionItems[index].entry.url) {
+                deletionItems[index].status = .pending
+                deletionItems[index].error = nil
+            }
+        }
         deletionCurrent = 0
-        deletionTotal = selected.count
+        deletionTotal = batch.count
+        batchMode = mode
         phase = .deleting
 
-        Task.detached { [weak self] in
-            guard let self else { return }
-            let items = await self.deletionItems
-            let urls = items.map(\.entry.url)
+        let deleter = Deleter(
+            mode: mode,
+            scanRoot: scanRoot,
+            definitions: definitions,
+            log: DeletionLog(version: AppVersion.short)
+        )
+        let scanRoot = self.scanRoot
 
-            // Derive allowed names from the actual entries being deleted, not mutable UI state
-            let entryCategories = Set(items.map(\.entry.category))
-            let allowedNames = ArtifactRegistry.allowedDeletionNames(for: entryCategories)
-            let allowedSystemPaths = ArtifactRegistry.allowedSystemPaths(for: entryCategories)
-
-            let result = Deleter.delete(
-                urls: urls,
-                allowedNames: allowedNames,
-                allowedSystemPaths: allowedSystemPaths
-            ) { current, total, url in
-                Task { @MainActor [weak self] in
-                    self?.deletionCurrent = current
-                    self?.deletionTotal = total
-                    if let idx = self?.deletionItems.firstIndex(where: { $0.entry.url == url }) {
-                        self?.deletionItems[idx].status = .inProgress
-                    }
+        Task { [weak self] in
+            let urls = batch.map(\.url)
+            let before = await Task.detached { DiskSpace.snapshot(for: urls) }.value
+            let results = await Task.detached { () -> [DeletionOutcome] in
+                await deleter.delete(batch) { event in
+                    Task { @MainActor [weak self] in self?.apply(event) }
                 }
-                Thread.sleep(forTimeInterval: 0.05)
+            }.value
+            let after = await Task.detached { DiskSpace.snapshot(matching: before) }.value
+            let measured = DiskSpace.freedBytes(before: before, after: after)
+
+            let ok = results.filter(\.isSuccess).count
+            deleter.log?.recordRun(
+                scanRoot: scanRoot, selected: batch.count, ok: ok, failed: results.count - ok,
+                estimatedBytes: batch.reduce(0) { $0 + $1.countedBytes }, measuredFreedBytes: measured)
+
+            self?.finishDeletion(results, measured: measured)
+        }
+    }
+
+    private func apply(_ event: DeletionEvent) {
+        switch event {
+        case .started(let index, let total, let entry):
+            deletionCurrent = index
+            deletionTotal = total
+            if let i = deletionItems.firstIndex(where: { $0.entry.url == entry.url }) {
+                deletionItems[i].status = .inProgress
             }
-
-            await MainActor.run { [weak self] in
-                guard let self else { return }
-                for url in result.deleted {
-                    if let idx = self.deletionItems.firstIndex(where: { $0.entry.url == url }) {
-                        self.deletionItems[idx].status = .done
-                    }
-                }
-                for (url, error) in result.failed {
-                    if let idx = self.deletionItems.firstIndex(where: { $0.entry.url == url }) {
-                        self.deletionItems[idx].status = .failed
-                        self.deletionItems[idx].error = error
-                    }
-                }
-
-                self.freedBytes = result.deleted.compactMap { url in
-                    self.entries.first { $0.url == url }?.sizeBytes
-                }.reduce(0, +)
-
-                self.deletedCount = result.deleted.count
-                self.failedCount = result.failed.count
-                self.failures = result.failed.map {
-                    (path: Formatter.shortenPath($0.url.path), error: $0.error)
-                }
-                self.phase = .summary
+        case .finished(let index, let total, let outcome):
+            deletionCurrent = index + 1
+            deletionTotal = total
+            if let i = deletionItems.firstIndex(where: { $0.entry.url == outcome.url }) {
+                deletionItems[i].status = outcome.isSuccess ? .done : .failed
+                deletionItems[i].error = outcome.failure?.localizedDescription
             }
+        }
+    }
+
+    private func finishDeletion(_ results: [DeletionOutcome], measured: Int64) {
+        // Merge: a permanent fallback replaces the trashUnsupported outcomes of the first pass.
+        let replaced = Set(results.map(\.url))
+        outcomes = outcomes.filter { !replaced.contains($0.url) } + results
+        measuredFreedBytes += measured
+        for outcome in results {
+            if let i = deletionItems.firstIndex(where: { $0.entry.url == outcome.url }) {
+                deletionItems[i].status = outcome.isSuccess ? .done : .failed
+                deletionItems[i].error = outcome.failure?.localizedDescription
+            }
+        }
+        trashUnsupportedEntries = results.filter(\.isTrashUnsupported).map(\.entry)
+        pendingPermanentFallback = !trashUnsupportedEntries.isEmpty
+        phase = .summary
+    }
+
+    // MARK: - Summary figures
+
+    var succeededOutcomes: [DeletionOutcome] { outcomes.filter(\.isSuccess) }
+    var failedOutcomes: [DeletionOutcome] { outcomes.filter { !$0.isSuccess } }
+
+    var deletedCount: Int { succeededOutcomes.count }
+    var failedCount: Int { failedOutcomes.count }
+
+    /// Sum of scan-time size estimates for everything that is gone.
+    var estimatedFreedBytes: Int64 {
+        succeededOutcomes.reduce(0) { $0 + $1.entry.countedBytes }
+    }
+
+    var trashedCount: Int {
+        outcomes.filter { if case .trashed = $0.status { return true } else { return false } }.count
+    }
+
+    var trashedEstimatedBytes: Int64 {
+        outcomes.reduce(0) { total, outcome in
+            if case .trashed = outcome.status { return total + outcome.entry.countedBytes }
+            return total
+        }
+    }
+
+    var permanentCount: Int {
+        outcomes.filter { $0.status == .deleted }.count
+    }
+
+    var permanentEstimatedBytes: Int64 {
+        outcomes.filter { $0.status == .deleted }.reduce(0) { $0 + $1.entry.countedBytes }
+    }
+
+    var failures: [(path: String, error: String)] {
+        failedOutcomes.map {
+            (path: Formatter.shortenPath($0.url.path), error: $0.failure?.localizedDescription ?? "not deleted")
         }
     }
 
@@ -312,10 +456,12 @@ class AppState: ObservableObject {
         scanProgress = ""
         foundCount = 0
         sizingProgress = nil
+        deniedCount = 0
+        deniedDirectories = []
         deletionItems = []
-        deletedCount = 0
-        failedCount = 0
-        freedBytes = 0
-        failures = []
+        outcomes = []
+        measuredFreedBytes = 0
+        trashUnsupportedEntries = []
+        pendingPermanentFallback = false
     }
 }

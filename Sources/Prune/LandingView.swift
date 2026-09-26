@@ -1,7 +1,13 @@
 import SwiftUI
+import PruneCore
 
 struct LandingView: View {
     @EnvironmentObject var state: AppState
+    @AppStorage(AppState.minAgeDaysKey) private var minAgeDays: Int = 0
+
+    private static let ageChoices: [(days: Int, label: String)] = [
+        (0, "Any"), (7, "7 days"), (30, "30 days"), (90, "90 days"), (180, "180 days"),
+    ]
 
     var body: some View {
         ScrollView {
@@ -51,10 +57,24 @@ struct LandingView: View {
                     }
                     .buttonStyle(.plain)
 
-                    Toggle("Include hidden directories", isOn: $state.includeHidden)
-                        .toggleStyle(.checkbox)
+                    HStack {
+                        Toggle("Include hidden directories", isOn: $state.includeHidden)
+                            .toggleStyle(.checkbox)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        Spacer()
+
+                        Picker("Minimum age", selection: $minAgeDays) {
+                            ForEach(Self.ageChoices, id: \.days) { choice in
+                                Text(choice.label).tag(choice.days)
+                            }
+                        }
+                        .pickerStyle(.menu)
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .fixedSize()
+                        .help("Only show artifacts whose folder and direct contents were last modified at least this long ago")
+                    }
                 }
                 .frame(maxWidth: 480)
 
@@ -86,46 +106,10 @@ struct LandingView: View {
                             .foregroundColor(.blue)
                     }
 
-                    // Project-level artifacts
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("PROJECT ARTIFACTS")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundColor(Color(nsColor: .tertiaryLabelColor))
-                            .padding(.bottom, 2)
-
-                        LazyVGrid(columns: [
-                            GridItem(.flexible(), spacing: 8),
-                            GridItem(.flexible(), spacing: 8),
-                        ], spacing: 6) {
-                            ForEach(ArtifactCategory.projectLevel) { category in
-                                CategoryToggle(
-                                    category: category,
-                                    isSelected: state.selectedCategories.contains(category),
-                                    onToggle: { state.toggleCategory(category) }
-                                )
-                            }
-                        }
-                    }
-
-                    // System-level artifacts
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("SYSTEM CACHES")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundColor(Color(nsColor: .tertiaryLabelColor))
-                            .padding(.bottom, 2)
-
-                        LazyVGrid(columns: [
-                            GridItem(.flexible(), spacing: 8),
-                            GridItem(.flexible(), spacing: 8),
-                        ], spacing: 6) {
-                            ForEach(ArtifactCategory.systemLevel) { category in
-                                CategoryToggle(
-                                    category: category,
-                                    isSelected: state.selectedCategories.contains(category),
-                                    onToggle: { state.toggleCategory(category) }
-                                )
-                            }
-                        }
+                    CategoryGroup(title: "PROJECT ARTIFACTS", types: state.definitions.projectTypes)
+                    CategoryGroup(title: "SYSTEM CACHES", types: state.definitions.systemTypes)
+                    if !state.definitions.filesTypes.isEmpty {
+                        CategoryGroup(title: "OTHER", types: state.definitions.filesTypes)
                     }
                 }
                 .frame(maxWidth: 480)
@@ -140,9 +124,24 @@ struct LandingView: View {
                 .keyboardShortcut(.return, modifiers: [])
                 .disabled(state.selectedCategories.isEmpty)
 
+                Text("v\(AppVersion.short)")
+                    .font(.system(size: 9))
+                    .foregroundColor(Color(nsColor: .tertiaryLabelColor))
+
                 Spacer().frame(height: 8)
             }
             .padding(.horizontal, 40)
+        }
+        .alert(
+            "Cannot scan this folder",
+            isPresented: Binding(
+                get: { state.rootError != nil },
+                set: { if !$0 { state.rootError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) { state.rootError = nil }
+        } message: {
+            Text(state.rootError ?? "")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .animation(.easeOut(duration: 0.2), value: state.phase)
@@ -162,8 +161,36 @@ struct LandingView: View {
     }
 }
 
+struct CategoryGroup: View {
+    @EnvironmentObject var state: AppState
+    let title: String
+    let types: [ArtifactType]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundColor(Color(nsColor: .tertiaryLabelColor))
+                .padding(.bottom, 2)
+
+            LazyVGrid(columns: [
+                GridItem(.flexible(), spacing: 8),
+                GridItem(.flexible(), spacing: 8),
+            ], spacing: 6) {
+                ForEach(types) { type in
+                    CategoryToggle(
+                        type: type,
+                        isSelected: state.selectedCategories.contains(type.id),
+                        onToggle: { state.toggleCategory(type.id) }
+                    )
+                }
+            }
+        }
+    }
+}
+
 struct CategoryToggle: View {
-    let category: ArtifactCategory
+    let type: ArtifactType
     let isSelected: Bool
     let onToggle: () -> Void
 
@@ -174,17 +201,29 @@ struct CategoryToggle: View {
                     .foregroundColor(isSelected ? .blue : .secondary)
                     .font(.system(size: 12))
 
-                Image(systemName: category.icon)
+                Image(systemName: type.icon)
                     .font(.system(size: 11))
                     .foregroundColor(isSelected ? .primary : .secondary)
                     .frame(width: 14)
 
-                Text(category.rawValue)
+                Text(type.displayName)
                     .font(.system(size: 11))
                     .foregroundColor(isSelected ? .primary : .secondary)
                     .lineLimit(1)
 
-                Spacer()
+                Spacer(minLength: 4)
+
+                if !type.regenerable {
+                    Text("not regenerable")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundColor(.orange)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(Color.orange.opacity(0.12))
+                        .cornerRadius(3)
+                        .lineLimit(1)
+                        .fixedSize()
+                }
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
@@ -196,5 +235,6 @@ struct CategoryToggle: View {
             )
         }
         .buttonStyle(.plain)
+        .help(type.description + ". " + type.reinstallHint)
     }
 }

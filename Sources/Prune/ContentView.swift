@@ -1,4 +1,5 @@
 import SwiftUI
+import PruneCore
 
 struct ContentView: View {
     @EnvironmentObject var state: AppState

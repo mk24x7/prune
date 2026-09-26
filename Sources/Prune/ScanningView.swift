@@ -1,4 +1,5 @@
 import SwiftUI
+import PruneCore
 
 struct ScanningView: View {
     @EnvironmentObject var state: AppState

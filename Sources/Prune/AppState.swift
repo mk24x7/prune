@@ -12,7 +12,10 @@ final class AppState: ObservableObject {
     @Published var scanRoot: URL = FileManager.default.homeDirectoryForCurrentUser
     @Published var scanRootDisplay: String = "~"
     @Published var includeHidden: Bool = false
-    @Published var selectedCategories: Set<String>
+    /// Types enabled for scanning; persisted so the choice survives relaunches.
+    @Published var selectedCategories: Set<String> {
+        didSet { persistCategories() }
+    }
     @Published var rootError: String?
 
     // Scanning
@@ -26,6 +29,12 @@ final class AppState: ObservableObject {
     @Published var sortField: SortField = .size
     @Published var sortAscending: Bool = false
     @Published var filterCategory: String? = nil
+    /// Free-text filter from the toolbar search field (project name or path).
+    @Published var searchText: String = ""
+    /// Types that were enabled when the current results were scanned.
+    @Published var scannedCategories: Set<String> = []
+    /// Set to ask the results screen to show the deletion confirmation.
+    @Published var pendingDeleteMode: DeleteMode?
     @Published var deniedCount: Int = 0
     @Published var deniedDirectories: [URL] = []
     /// Minimum age filter captured from `@AppStorage("minAgeDays")` when the scan starts.
@@ -51,11 +60,40 @@ final class AppState: ObservableObject {
     nonisolated static let sizingConcurrency = 6
 
     static let minAgeDaysKey = "minAgeDays"
+    static let selectedCategoriesKey = "selectedCategories"
+    /// Every type id known when the selection was last saved, so types added in
+    /// a later version start with their default instead of appearing disabled.
+    static let knownCategoriesKey = "knownCategories"
 
     init(definitions: Definitions) {
         self.definitions = definitions
-        self.selectedCategories = definitions.defaultEnabledIds
+        self.selectedCategories = Self.restoreCategories(definitions: definitions)
     }
+
+    private static func restoreCategories(definitions: Definitions) -> Set<String> {
+        let defaults = UserDefaults.standard
+        guard let saved = defaults.stringArray(forKey: selectedCategoriesKey) else {
+            return definitions.defaultEnabledIds
+        }
+        let current = Set(definitions.types.map(\.id))
+        let known = Set(defaults.stringArray(forKey: knownCategoriesKey) ?? [])
+        let added = definitions.defaultEnabledIds.subtracting(known)
+        return Set(saved).intersection(current).union(added)
+    }
+
+    /// False in snapshot mode so a demo selection never overwrites the user's.
+    var persistsCategories = true
+
+    private func persistCategories() {
+        guard persistsCategories else { return }
+        let defaults = UserDefaults.standard
+        defaults.set(selectedCategories.sorted(), forKey: Self.selectedCategoriesKey)
+        defaults.set(definitions.types.map(\.id), forKey: Self.knownCategoriesKey)
+    }
+
+    var isBusy: Bool { phase == .scanning || phase == .deleting }
+
+    var canScan: Bool { !isBusy && !selectedCategories.isEmpty }
 
     func type(for entry: ArtifactEntry) -> ArtifactType? {
         definitions.type(id: entry.typeId)
@@ -92,13 +130,35 @@ final class AppState: ObservableObject {
         return selectedEntries.filter { !shown.contains($0.url) }.count
     }
 
-    /// Entries filtered by minimum age and the category filter, then sorted.
+    /// Result count and counted size per type, over the age-filtered entries.
+    var typeStats: [String: (count: Int, bytes: Int64)] {
+        var stats: [String: (count: Int, bytes: Int64)] = [:]
+        for entry in visibleEntries {
+            let existing = stats[entry.typeId] ?? (count: 0, bytes: 0)
+            stats[entry.typeId] = (count: existing.count + 1, bytes: existing.bytes + entry.countedBytes)
+        }
+        return stats
+    }
+
+    private var trimmedSearch: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var isSearching: Bool { !trimmedSearch.isEmpty }
+
+    /// Entries filtered by minimum age, the category filter and the search
+    /// text, then sorted.
     var sortedEntries: [ArtifactEntry] {
-        let filtered: [ArtifactEntry]
+        var filtered = visibleEntries
         if let id = filterCategory {
-            filtered = visibleEntries.filter { $0.typeId == id }
-        } else {
-            filtered = visibleEntries
+            filtered = filtered.filter { $0.typeId == id }
+        }
+        let query = trimmedSearch
+        if !query.isEmpty {
+            filtered = filtered.filter {
+                $0.projectName.localizedCaseInsensitiveContains(query)
+                    || $0.shortPath.localizedCaseInsensitiveContains(query)
+            }
         }
 
         return filtered.sorted { a, b in
@@ -148,7 +208,9 @@ final class AppState: ObservableObject {
         selectedCategories = []
     }
 
-    func startScan() {
+    /// Starts a scan of `scanRoot`. `minAgeOverride` replaces the stored
+    /// minimum age for this scan only (snapshot mode).
+    func startScan(minAgeOverride: Int? = nil) {
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: scanRoot.path, isDirectory: &isDir), isDir.boolValue else {
             rootError = "\(scanRoot.path) is not an existing folder. Choose another folder to scan."
@@ -157,6 +219,14 @@ final class AppState: ObservableObject {
         }
 
         phase = .scanning
+        scannedCategories = selectedCategories
+        pendingDeleteMode = nil
+        // A rescan from the summary starts from a clean deletion state.
+        deletionItems = []
+        outcomes = []
+        measuredFreedBytes = 0
+        trashUnsupportedEntries = []
+        pendingPermanentFallback = false
         scanProgress = ""
         foundCount = 0
         sizingProgress = nil
@@ -165,7 +235,7 @@ final class AppState: ObservableObject {
         filterCategory = nil
         deniedCount = 0
         deniedDirectories = []
-        minAgeDays = max(0, UserDefaults.standard.integer(forKey: Self.minAgeDaysKey))
+        minAgeDays = max(0, minAgeOverride ?? UserDefaults.standard.integer(forKey: Self.minAgeDaysKey))
 
         let definitions = self.definitions
         let root = scanRoot
@@ -299,6 +369,17 @@ final class AppState: ObservableObject {
         selectedPaths.subtract(Set(sortedEntries.map(\.url)))
     }
 
+    /// Select every age-filtered entry of a type, regardless of the list filter.
+    func selectAll(ofType typeId: String) {
+        selectedPaths.formUnion(visibleEntries.filter { $0.typeId == typeId }.map(\.url))
+    }
+
+    /// Open the deletion confirmation for the current selection.
+    func requestDeletion(_ mode: DeleteMode) {
+        guard phase == .results, !selectedPaths.isEmpty else { return }
+        pendingDeleteMode = mode
+    }
+
     func toggleSort(_ field: SortField) {
         if sortField == field {
             sortAscending.toggle()
@@ -310,6 +391,7 @@ final class AppState: ObservableObject {
 
     func startDeletion(mode: DeleteMode) {
         let selected = selectedEntries
+        pendingDeleteMode = nil
         guard !selected.isEmpty else { return }
         deleteMode = mode
         outcomes = []
@@ -453,6 +535,8 @@ final class AppState: ObservableObject {
         entries = []
         selectedPaths = []
         filterCategory = nil
+        scannedCategories = []
+        pendingDeleteMode = nil
         scanProgress = ""
         foundCount = 0
         sizingProgress = nil

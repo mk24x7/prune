@@ -1,97 +1,42 @@
 import SwiftUI
+import AppKit
 import PruneCore
 
+/// Summary detail: outcome, measured and estimated figures, per-type table,
+/// failures, and the Rescan / Quit actions.
 struct SummaryView: View {
     @EnvironmentObject var state: AppState
 
     var body: some View {
-        VStack(spacing: 20) {
-            Spacer()
-
-            // Outcome icon
-            ZStack {
-                Circle()
-                    .fill(outcome.color.opacity(0.1))
-                    .frame(width: 64, height: 64)
-                Image(systemName: outcome.icon)
-                    .font(.system(size: 28, weight: .semibold))
-                    .foregroundColor(outcome.color)
-            }
-
-            VStack(spacing: 6) {
-                Text(title)
-                    .font(.system(size: 28, weight: .bold))
-
-                ForEach(detailLines, id: \.self) { line in
-                    Text(line)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
+        ScrollView {
+            VStack(alignment: .leading, spacing: Theme.Spacing.m) {
+                outcomeCard
+                figuresCard
+                if !state.categoryBreakdown.isEmpty {
+                    breakdownCard
                 }
-            }
-
-            // Per-category breakdown
-            if state.categoryBreakdown.count > 1 {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(state.categoryBreakdown, id: \.typeId) { item in
-                        let type = state.definitions.type(id: item.typeId)
-                        HStack(spacing: 6) {
-                            Image(systemName: type?.icon ?? "questionmark.folder")
-                                .font(.system(size: 10))
-                                .foregroundColor(.secondary)
-                                .frame(width: 14)
-                            Text(type?.displayName ?? item.typeId)
-                                .font(.system(size: 11))
-                                .foregroundColor(.secondary)
-                            Spacer()
-                            Text("\(item.count) items")
-                                .font(.system(size: 10))
-                                .foregroundColor(Color(nsColor: .tertiaryLabelColor))
-                            Text(Formatter.formatSize(item.bytes))
-                                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                                .foregroundColor(.primary)
-                        }
+                if !state.failures.isEmpty {
+                    failuresCard
+                }
+                HStack(spacing: Theme.Spacing.m) {
+                    Spacer()
+                    Button("Quit") { NSApplication.shared.terminate(nil) }
+                        .controlSize(.large)
+                    Button(action: { state.startScan() }) {
+                        Label("Rescan", systemImage: "arrow.clockwise")
                     }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .keyboardShortcut(.return, modifiers: [])
+                    .disabled(!state.canScan)
+                    .help("Scan again with the current settings (Return)")
                 }
-                .padding(.horizontal, 30)
-                .frame(maxWidth: 360)
+                .padding(.top, Theme.Spacing.xs)
             }
-
-            // Show failures if any
-            if !state.failures.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(state.deletedCount == 0 ? "Not deleted:" : "Failed to delete:")
-                        .font(.caption)
-                        .foregroundColor(.red)
-                    ForEach(state.failures.indices, id: \.self) { i in
-                        Text("\(state.failures[i].path) -- \(state.failures[i].error)")
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-                .padding(.horizontal, 30)
-                .frame(maxWidth: 400)
-            }
-
-            HStack(spacing: 12) {
-                Button("Scan Again") {
-                    state.reset()
-                }
-                .controlSize(.large)
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.return, modifiers: [])
-
-                Button("Quit") {
-                    NSApplication.shared.terminate(nil)
-                }
-                .controlSize(.large)
-                .buttonStyle(.bordered)
-            }
-
-            Spacer()
+            .padding(Theme.Spacing.xl)
+            .frame(maxWidth: 720)
+            .frame(maxWidth: .infinity)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .alert(
             "Move to Trash failed",
             isPresented: Binding(
@@ -106,6 +51,129 @@ struct SummaryView: View {
             Text("\(count) \(count == 1 ? "item" : "items") could not be moved to Trash (the volume does not support it). Delete \(count == 1 ? "it" : "them") permanently?")
         }
     }
+
+    // MARK: Cards
+
+    private var outcomeCard: some View {
+        HStack(spacing: Theme.Spacing.l) {
+            ZStack {
+                Circle()
+                    .fill(outcome.color.opacity(0.15))
+                    .frame(width: 56, height: 56)
+                Image(systemName: outcome.icon)
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundColor(outcome.color)
+            }
+            .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                Text(title)
+                    .font(.system(size: 24, weight: .bold))
+                ForEach(detailLines, id: \.self) { line in
+                    Text(line)
+                        .font(.callout)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(Theme.Spacing.l)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous).fill(outcome.color.opacity(0.08)))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+                .stroke(outcome.color.opacity(0.35), lineWidth: 1)
+        )
+    }
+
+    private var figuresCard: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.m) {
+            Text("Figures").sectionHeaderStyle()
+            HStack(alignment: .top, spacing: Theme.Spacing.xl) {
+                if state.permanentCount > 0 {
+                    StatView(value: Formatter.formatSize(state.measuredFreedBytes),
+                             label: "freed (measured)", color: .green)
+                    StatView(value: Formatter.formatSize(state.permanentEstimatedBytes),
+                             label: "deleted (estimated)")
+                }
+                if state.trashedCount > 0 {
+                    StatView(value: Formatter.formatSize(state.trashedEstimatedBytes),
+                             label: "in Trash (estimated)")
+                }
+                StatView(value: "\(state.deletedCount) of \(state.deletedCount + state.failedCount)",
+                         label: "items removed")
+                if state.failedCount > 0 {
+                    StatView(value: "\(state.failedCount)", label: "failed", color: .red)
+                }
+                Spacer(minLength: 0)
+            }
+            if state.trashedCount > 0 {
+                Text("Items in the Trash still use disk space until you empty the Trash.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .cardStyle()
+    }
+
+    private var breakdownCard: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.s) {
+            Text("Removed by type").sectionHeaderStyle()
+            Grid(alignment: .leading, horizontalSpacing: Theme.Spacing.l, verticalSpacing: 6) {
+                GridRow {
+                    Text("Type")
+                    Text("Items").gridColumnAlignment(.trailing)
+                    Text("Size").gridColumnAlignment(.trailing)
+                }
+                .font(.caption)
+                .foregroundColor(Theme.tertiary)
+                Divider().gridCellUnsizedAxes(.horizontal)
+                ForEach(state.categoryBreakdown, id: \.typeId) { item in
+                    let type = state.definitions.type(id: item.typeId)
+                    GridRow {
+                        HStack(spacing: Theme.Spacing.s) {
+                            Image(systemName: type?.icon ?? "questionmark.folder")
+                                .foregroundColor(Palette.color(type?.color))
+                                .frame(width: 16)
+                            Text(type?.displayName ?? item.typeId)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        Text("\(item.count)")
+                            .monospacedDigit()
+                            .foregroundColor(.secondary)
+                        Text(Formatter.formatSize(item.bytes))
+                            .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    }
+                    .font(.callout)
+                }
+            }
+        }
+        .cardStyle()
+    }
+
+    private var failuresCard: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.s) {
+            Text(state.deletedCount == 0 ? "Not deleted" : "Failed to delete")
+                .sectionHeaderStyle()
+                .foregroundColor(.red)
+            ForEach(state.failures.indices, id: \.self) { i in
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(state.failures[i].path)
+                        .font(.system(size: 11, design: .monospaced))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Text(state.failures[i].error)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .textSelection(.enabled)
+            }
+        }
+        .cardStyle()
+    }
+
+    // MARK: Outcome
 
     private enum Outcome {
         case allOk, partial, none

@@ -25,6 +25,28 @@ node Definitions/validate.mjs # artifact definitions
 
 All three must pass before a pull request is merged. CI runs the same commands.
 
+## Screenshots
+
+The app has a hidden snapshot mode that renders the UI offscreen and quits, so
+the README screenshot can be regenerated without screen recording permission:
+
+```sh
+./build.sh
+PRUNE_SNAPSHOT_DIR=/tmp/prune-shots dist/Prune.app/Contents/MacOS/Prune
+cp /tmp/prune-shots/results.png assets/results.png
+```
+
+- `PRUNE_SNAPSHOT_DIR` turns the mode on and is where `landing.png` and
+  `results.png` are written (2x, 2080x1360 px for the default 1040x680 pt window).
+- `PRUNE_SNAPSHOT_ROOT` is the folder to scan (default `~/Demo`). Keep it a
+  folder of throwaway demo projects so no real paths end up in the image.
+
+Snapshot mode scans project artifact types only (no system caches), selects the
+three largest results, forces the dark appearance, never deletes anything and
+does not change the saved type selection. The glass sidebar and toolbar of the
+real window do not render through offscreen capture, so the image shows the
+sidebar and detail views side by side on solid backgrounds without the toolbar.
+
 ## Adding an artifact type
 
 Every artifact type lives in one place, `Definitions/artifacts.json`, which both the app and the CLI load. `Definitions/artifacts.schema.json` documents every field; editors that understand JSON Schema will offer completion.

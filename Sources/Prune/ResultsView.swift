@@ -1,190 +1,81 @@
 import SwiftUI
 import PruneCore
 
+/// Results detail: header card, the result rows and the action footer.
 struct ResultsView: View {
     @EnvironmentObject var state: AppState
-    @State private var showConfirm = false
-
-    private var displayEntries: [ArtifactEntry] {
-        state.sortedEntries
-    }
-
-    private var allSelected: Bool {
-        !displayEntries.isEmpty && displayEntries.allSatisfy { state.selectedPaths.contains($0.url) }
-    }
-
-    private var someSelected: Bool {
-        let selectedInView = displayEntries.filter { state.selectedPaths.contains($0.url) }
-        return !selectedInView.isEmpty && selectedInView.count < displayEntries.count
-    }
 
     var body: some View {
+        let rows = state.sortedEntries
         VStack(spacing: 0) {
-            // Category filter bar
-            if state.categoriesWithResults.count > 1 {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        FilterChip(
-                            label: "All",
-                            count: state.visibleEntries.count,
-                            isSelected: state.filterCategory == nil,
-                            onTap: { state.filterCategory = nil }
-                        )
+            ResultsHeader(shownCount: rows.count)
+                .padding(.horizontal, Theme.Spacing.l)
+                .padding(.top, Theme.Spacing.l)
+                .padding(.bottom, Theme.Spacing.m)
 
-                        ForEach(state.categoriesWithResults) { type in
-                            FilterChip(
-                                label: type.displayName,
-                                count: state.visibleEntries.filter { $0.typeId == type.id }.count,
-                                isSelected: state.filterCategory == type.id,
-                                onTap: { state.filterCategory = type.id }
+            if state.entries.isEmpty {
+                NothingFoundView()
+            } else if rows.isEmpty {
+                NoMatchesView()
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(Array(rows.enumerated()), id: \.element.id) { index, entry in
+                            if index > 0 {
+                                Divider().padding(.leading, 44)
+                            }
+                            ResultRowView(
+                                entry: entry,
+                                type: state.type(for: entry),
+                                isSelected: state.selectedPaths.contains(entry.url)
                             )
                         }
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                }
-                .background(.ultraThinMaterial)
-
-                Divider()
-            }
-
-            // Toolbar
-            HStack {
-                Button(action: {
-                    if allSelected { state.deselectAll() } else { state.selectAll() }
-                }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: allSelected ? "checkmark.square.fill" :
-                                someSelected ? "minus.square.fill" : "square")
-                            .foregroundColor(allSelected || someSelected ? .blue : .secondary)
-                        Text("Select all (\(displayEntries.count))")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-                .buttonStyle(.plain)
-
-                Spacer()
-
-                if !state.selectedPaths.isEmpty {
-                    Text("\(state.selectedPaths.count) selected -- \(Formatter.formatSize(state.selectedTotalSize))")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-
-                Menu {
-                    ForEach(SortField.allCases, id: \.self) { field in
-                        Button(action: { state.toggleSort(field) }) {
-                            HStack {
-                                Text(field.rawValue)
-                                if state.sortField == field {
-                                    Image(systemName: state.sortAscending ? "chevron.up" : "chevron.down")
-                                }
-                            }
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 4) {
-                        Text("Sort: \(state.sortField.rawValue)")
-                            .font(.caption)
-                        Image(systemName: state.sortAscending ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 8))
-                    }
-                    .foregroundColor(.secondary)
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(.ultraThinMaterial)
-
-            Divider()
-
-            // List
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(displayEntries) { entry in
-                        ResultRowView(
-                            entry: entry,
-                            type: state.type(for: entry),
-                            isSelected: state.selectedPaths.contains(entry.url),
-                            onToggle: { state.toggleSelection(entry) }
-                        )
-                        Divider().padding(.leading, 36)
-                    }
+                    .padding(.vertical, Theme.Spacing.xs)
+                    .cardStyle(padding: 0)
+                    .padding(.horizontal, Theme.Spacing.l)
+                    .padding(.bottom, Theme.Spacing.l)
                 }
             }
 
-            Divider()
-
-            if state.deniedCount > 0 {
-                DeniedNotice(count: state.deniedCount, examples: state.deniedDirectories)
-                Divider()
-            }
-
-            // Footer
-            HStack {
-                Text(footerSummary)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
-                Spacer()
-
-                Button("Scan Again") {
-                    state.reset()
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-
-                Button(deleteButtonLabel) {
-                    showConfirm = true
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.red)
-                .controlSize(.small)
-                .disabled(state.selectedPaths.isEmpty)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(.ultraThinMaterial)
+            ResultsFooter(rows: rows)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .confirmationDialog(
-            "Confirm Deletion",
-            isPresented: $showConfirm,
-            titleVisibility: .visible
-        ) {
-            Button(
-                "Move \(state.selectedEntries.count) \(state.selectedEntries.count == 1 ? "item" : "items") to Trash (\(Formatter.formatSize(state.selectedTotalSize)))",
-                role: .destructive
-            ) {
-                state.startDeletion(mode: .trash)
+            dialogTitle,
+            isPresented: Binding(
+                get: { state.pendingDeleteMode != nil },
+                set: { if !$0 { state.pendingDeleteMode = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: state.pendingDeleteMode
+        ) { mode in
+            let count = state.selectedEntries.count.counted("item")
+            let size = Formatter.formatSize(state.selectedTotalSize)
+            if mode == .trash {
+                Button("Move \(count) to Trash (\(size))", role: .destructive) {
+                    state.startDeletion(mode: .trash)
+                }
+                .keyboardShortcut(.defaultAction)
+                Button("Delete Permanently", role: .destructive) {
+                    state.startDeletion(mode: .permanent)
+                }
+            } else {
+                Button("Delete \(count) Permanently (\(size))", role: .destructive) {
+                    state.startDeletion(mode: .permanent)
+                }
+                .keyboardShortcut(.defaultAction)
+                Button("Move to Trash Instead") {
+                    state.startDeletion(mode: .trash)
+                }
             }
-            .keyboardShortcut(.defaultAction)
-            Button("Delete Permanently", role: .destructive) {
-                state.startDeletion(mode: .permanent)
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
+            Button("Cancel", role: .cancel) { state.pendingDeleteMode = nil }
+        } message: { _ in
             Text(confirmationMessage)
         }
     }
 
-    private var footerSummary: String {
-        var text = "\(state.visibleEntries.count) items -- \(Formatter.formatSize(state.totalSize)) total"
-        if state.minAgeDays > 0 {
-            let hidden = state.entries.count - state.visibleEntries.count
-            text += " (older than \(state.minAgeDays) days"
-            text += hidden > 0 ? ", \(hidden) newer hidden)" : ")"
-        }
-        return text
-    }
-
-    private var deleteButtonLabel: String {
-        let hidden = state.hiddenSelectedCount
-        let base = "Delete Selected (\(state.selectedEntries.count))"
-        return hidden > 0 ? base + ", \(hidden) hidden by filter" : base
+    private var dialogTitle: String {
+        state.pendingDeleteMode == .permanent ? "Delete Permanently?" : "Move to Trash?"
     }
 
     private var confirmationMessage: String {
@@ -201,7 +92,11 @@ struct ResultsView: View {
             let names = irreplaceable.map(\.displayName).joined(separator: ", ")
             message += "WARNING: \(names) cannot be regenerated.\n\n"
         }
-        message += "\(selected.count) \(selected.count == 1 ? "item" : "items") totaling \(size):\n\(breakdown)"
+        message += "\(selected.count.counted("item")) totaling \(size):\n\(breakdown)"
+        let hidden = state.hiddenSelectedCount
+        if hidden > 0 {
+            message += "\n\n\(hidden) of the selected \(hidden == 1 ? "item is" : "items are") hidden by the current filter or search."
+        }
         let unknown = selected.filter(\.sizeUnknown).count
         if unknown > 0 {
             message += "\n\n\(unknown) \(unknown == 1 ? "item has" : "items have") an unknown size and \(unknown == 1 ? "is" : "are") not counted in the total."
@@ -215,162 +110,258 @@ struct ResultsView: View {
     }
 }
 
-/// Shown when the scan hit folders it was not allowed to read.
-struct DeniedNotice: View {
-    let count: Int
-    let examples: [URL]
-
-    static let privacySettingsURL = URL(
-        string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!
+/// Totals, selection and the denied-folders notice.
+struct ResultsHeader: View {
+    @EnvironmentObject var state: AppState
+    let shownCount: Int
 
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 11))
-                .foregroundColor(.orange)
-            Text("\(count) \(count == 1 ? "folder" : "folders") could not be read")
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .help(examples.prefix(10).map { Formatter.shortenPath($0.path) }.joined(separator: "\n"))
-            Spacer()
-            Button("Open Privacy Settings") {
-                NSWorkspace.shared.open(Self.privacySettingsURL)
+        VStack(alignment: .leading, spacing: Theme.Spacing.m) {
+            HStack(alignment: .top, spacing: Theme.Spacing.xl) {
+                StatView(
+                    value: Formatter.formatSize(state.totalSize),
+                    label: "\(state.visibleEntries.count.counted("item")) found"
+                )
+                StatView(
+                    value: Formatter.formatSize(state.selectedTotalSize),
+                    label: "\(state.selectedEntries.count) selected",
+                    color: state.selectedPaths.isEmpty ? .secondary : .accentColor
+                )
+                Spacer(minLength: Theme.Spacing.s)
+                VStack(alignment: .trailing, spacing: Theme.Spacing.xs) {
+                    if let id = state.filterCategory {
+                        HStack(spacing: Theme.Spacing.xs) {
+                            TypeBadge(type: state.definitions.type(id: id), fallback: id)
+                            Button(action: { state.filterCategory = nil }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Show all results")
+                            .accessibilityLabel("Clear type filter")
+                        }
+                    }
+                    if state.filterCategory != nil || state.isSearching {
+                        Text("Showing \(shownCount) of \(state.visibleEntries.count)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+
+            Text(scopeLine)
+                .font(.caption)
+                .foregroundColor(Theme.tertiary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+
+            if state.deniedCount > 0 {
+                Divider()
+                DeniedNotice(count: state.deniedCount, examples: state.deniedDirectories)
+            }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(.ultraThinMaterial)
+        .cardStyle()
+    }
+
+    private var scopeLine: String {
+        var text = "Scanned \(state.scanRootDisplay)"
+        if state.minAgeDays > 0 {
+            let hidden = state.entries.count - state.visibleEntries.count
+            text += ", older than \(state.minAgeDays) days"
+            if hidden > 0 { text += " (\(hidden) newer hidden)" }
+        }
+        let unknown = state.visibleEntries.filter(\.sizeUnknown).count
+        if unknown > 0 {
+            text += ", \(unknown) with unknown size"
+        }
+        return text
     }
 }
 
 struct ResultRowView: View {
+    @EnvironmentObject var state: AppState
     let entry: ArtifactEntry
     let type: ArtifactType?
     let isSelected: Bool
-    let onToggle: () -> Void
+    @State private var hovering = false
 
     var body: some View {
-        Button(action: onToggle) {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: isSelected ? "checkmark.square.fill" : "square")
-                    .foregroundColor(isSelected ? .blue : .secondary)
-                    .font(.system(size: 14))
-                    .padding(.top, 2)
+        Button(action: { state.toggleSelection(entry) }) {
+            HStack(spacing: Theme.Spacing.m) {
+                CheckboxGlyph(mark: isSelected ? .on : .off)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack {
-                        CategoryBadge(type: type, fallback: entry.typeId)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: Theme.Spacing.s) {
                         Text(entry.projectName)
-                            .font(.system(.body, weight: .medium))
+                            .font(.system(size: 13, weight: .medium))
                             .foregroundColor(.primary)
                             .lineLimit(1)
-                        Spacer()
-                        SizeBadge(bytes: entry.sizeBytes, formatted: entry.formattedSize, unknown: entry.sizeUnknown)
+                        TypeBadge(type: type, fallback: entry.typeId)
+                        if type?.regenerable == false {
+                            NotRegenerableTag()
+                        }
                     }
-                    HStack {
-                        Text(entry.shortPath)
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundColor(Color(nsColor: .tertiaryLabelColor))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Spacer()
-                        Text(entry.age)
-                            .font(.system(size: 11))
-                            .foregroundColor(Color(nsColor: .tertiaryLabelColor))
+                    Text(entry.shortPath)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+
+                Spacer(minLength: Theme.Spacing.s)
+
+                Text(entry.age)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .frame(minWidth: 80, alignment: .trailing)
+
+                SizeBadge(bytes: entry.sizeBytes, formatted: entry.formattedSize, unknown: entry.sizeUnknown)
+                    .frame(minWidth: 76, alignment: .trailing)
+            }
+            .padding(.horizontal, Theme.Spacing.m)
+            .padding(.vertical, Theme.Spacing.s)
+            .contentShape(Rectangle())
+            .background(isSelected ? Color.accentColor.opacity(0.08) : (hovering ? Theme.hover : Color.clear))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help(entry.url.path)
+        .accessibilityLabel("\(entry.projectName), \(type?.displayName ?? entry.typeId), \(entry.formattedSize), \(entry.age)")
+        .accessibilityValue(isSelected ? "selected" : "not selected")
+        .accessibilityHint("Toggles selection")
+        .contextMenu {
+            Button("Reveal in Finder") { FileActions.reveal(entry.url) }
+            Button("Copy Path") { FileActions.copyPath(entry.url) }
+            Divider()
+            Button("Select All \(type?.displayName ?? entry.typeId)") { state.selectAll(ofType: entry.typeId) }
+        }
+    }
+}
+
+/// Select all, selection summary and the delete actions.
+struct ResultsFooter: View {
+    @EnvironmentObject var state: AppState
+    let rows: [ArtifactEntry]
+
+    private var selectedInView: Int {
+        rows.filter { state.selectedPaths.contains($0.url) }.count
+    }
+
+    private var mark: CheckboxGlyph.Mark {
+        let count = selectedInView
+        if count == 0 { return .off }
+        return count == rows.count ? .on : .mixed
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Divider()
+            HStack(spacing: Theme.Spacing.m) {
+                Button(action: {
+                    if mark == .on { state.deselectAll() } else { state.selectAll() }
+                }) {
+                    HStack(spacing: 6) {
+                        CheckboxGlyph(mark: mark)
+                        Text("Select all (\(rows.count))")
+                            .font(.callout)
+                            .foregroundColor(.primary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(rows.isEmpty)
+                .help("Select or deselect every visible result (Command-A selects all)")
+                .accessibilityLabel(mark == .on ? "Deselect all visible results" : "Select all visible results")
+
+                Spacer()
+
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text(state.selectedPaths.isEmpty
+                         ? "Nothing selected"
+                         : "\(state.selectedEntries.count) selected, \(Formatter.formatSize(state.selectedTotalSize))")
+                        .font(.callout.monospacedDigit())
+                        .foregroundColor(state.selectedPaths.isEmpty ? .secondary : .primary)
+                    let hidden = state.hiddenSelectedCount
+                    if hidden > 0 {
+                        Text("\(hidden) hidden by filter")
+                            .font(.caption)
+                            .foregroundColor(.orange)
                     }
                 }
+
+                Menu {
+                    Button("Delete Permanently...") { state.requestDeletion(.permanent) }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .disabled(state.selectedPaths.isEmpty)
+                .help("More delete options")
+                .accessibilityLabel("More delete options")
+
+                Button(action: { state.requestDeletion(.trash) }) {
+                    Label("Move to Trash", systemImage: "trash")
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(state.selectedPaths.isEmpty)
+                .help("Move the selected items to the Trash (Delete)")
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .contentShape(Rectangle())
-            .background(isSelected ? Color.blue.opacity(0.05) : Color.clear)
+            .padding(.horizontal, Theme.Spacing.l)
+            .padding(.vertical, Theme.Spacing.m)
         }
-        .buttonStyle(.plain)
+        .background(.bar)
     }
 }
 
-struct CategoryBadge: View {
-    let type: ArtifactType?
-    let fallback: String
-
-    private var color: Color { Palette.color(type?.color) }
+struct NothingFoundView: View {
+    @EnvironmentObject var state: AppState
 
     var body: some View {
-        Text(type?.displayName ?? fallback)
-            .font(.system(size: 9, weight: .medium))
-            .foregroundColor(color)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 2)
-            .background(color.opacity(0.12))
-            .cornerRadius(3)
-    }
-}
-
-struct FilterChip: View {
-    let label: String
-    let count: Int
-    let isSelected: Bool
-    let onTap: () -> Void
-
-    var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 4) {
-                Text(label)
-                    .font(.system(size: 10, weight: .medium))
-                Text("\(count)")
-                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                    .foregroundColor(isSelected ? .white : .secondary)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .background(isSelected ? Color.blue : Color.gray.opacity(0.2))
-                    .cornerRadius(4)
+        VStack(spacing: Theme.Spacing.m) {
+            Spacer()
+            ZStack {
+                Circle().fill(Color.green.opacity(0.12)).frame(width: 64, height: 64)
+                Image(systemName: "checkmark")
+                    .font(.system(size: 28, weight: .semibold))
+                    .foregroundColor(.green)
             }
-            .foregroundColor(isSelected ? .blue : .secondary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(isSelected ? Color.blue.opacity(0.1) : Color.clear)
-            .cornerRadius(6)
-            .overlay(
-                RoundedRectangle(cornerRadius: 6)
-                    .stroke(isSelected ? Color.blue.opacity(0.3) : Color.gray.opacity(0.2), lineWidth: 1)
-            )
+            Text("Nothing to prune")
+                .font(.system(size: 20, weight: .bold))
+            Text("No artifacts of the \(state.scannedCategories.count.counted("enabled type")) were found in \(state.scanRootDisplay).")
+                .font(.callout)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+            Spacer()
         }
-        .buttonStyle(.plain)
+        .padding(Theme.Spacing.xl)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
-struct SizeBadge: View {
-    let bytes: Int64
-    let formatted: String
-    var unknown: Bool = false
-
-    private var bgColor: Color {
-        if unknown { return Color.gray.opacity(0.15) }
-        switch Formatter.sizeSeverity(bytes) {
-        case .large: return Color.red.opacity(0.15)
-        case .medium: return Color.orange.opacity(0.15)
-        case .small: return Color.green.opacity(0.15)
-        }
-    }
-
-    private var textColor: Color {
-        if unknown { return .secondary }
-        switch Formatter.sizeSeverity(bytes) {
-        case .large: return Color(red: 0.95, green: 0.3, blue: 0.3)
-        case .medium: return Color(red: 0.95, green: 0.7, blue: 0.2)
-        case .small: return Color(red: 0.2, green: 0.8, blue: 0.5)
-        }
-    }
+struct NoMatchesView: View {
+    @EnvironmentObject var state: AppState
 
     var body: some View {
-        Text(formatted)
-            .font(.system(size: 11, weight: .medium, design: .monospaced))
-            .foregroundColor(textColor)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(bgColor)
-            .cornerRadius(4)
+        VStack(spacing: Theme.Spacing.m) {
+            Spacer()
+            Image(systemName: "line.3.horizontal.decrease.circle")
+                .font(.system(size: 34))
+                .foregroundColor(.secondary)
+            Text("No results match")
+                .font(.headline)
+            HStack(spacing: Theme.Spacing.s) {
+                if state.filterCategory != nil {
+                    Button("Show All Types") { state.filterCategory = nil }
+                }
+                if state.isSearching {
+                    Button("Clear Search") { state.searchText = "" }
+                }
+            }
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

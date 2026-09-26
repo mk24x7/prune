@@ -1,115 +1,146 @@
 import SwiftUI
 import PruneCore
 
+/// Deleting detail: overall progress card and a per-item status list.
 struct DeletingView: View {
     @EnvironmentObject var state: AppState
 
-    var progress: Double {
+    private var progress: Double {
         guard state.deletionTotal > 0 else { return 0 }
         return Double(state.deletionCurrent) / Double(state.deletionTotal)
     }
 
-    var currentItem: DeletionItem? {
+    private var currentItem: DeletionItem? {
         state.deletionItems.first { $0.status == .inProgress }
     }
 
     var body: some View {
-        VStack(spacing: 16) {
-            Spacer()
+        VStack(spacing: Theme.Spacing.m) {
+            progressCard
+            itemsCard
+        }
+        .padding(Theme.Spacing.l)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
 
-            Text("\(state.batchMode == .trash ? "Moving to Trash" : "Deleting")... \(state.deletionCurrent) of \(state.deletionTotal)")
-                .font(.headline)
-
-            VStack(spacing: 6) {
-                ProgressView(value: progress)
-                    .progressViewStyle(.linear)
-                    .frame(maxWidth: 300)
-
-                HStack {
-                    Spacer()
-                    Text("\(Int(progress * 100))%")
-                        .font(.caption)
+    private var progressCard: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.m) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(state.batchMode == .trash ? "Moving to Trash" : "Deleting permanently")
+                        .font(.system(size: 18, weight: .semibold))
+                    Text("\(state.deletionCurrent) of \(state.deletionTotal)")
+                        .font(.callout.monospacedDigit())
                         .foregroundColor(.secondary)
                 }
-                .frame(maxWidth: 300)
+                Spacer()
+                Text("\(Int(progress * 100))%")
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .monospacedDigit()
             }
+            ProgressView(value: progress)
+                .progressViewStyle(.linear)
+            Text(currentItem.map { "Now: \($0.entry.shortPath) (\($0.entry.formattedSize))" } ?? " ")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .cardStyle()
+    }
 
-            if let item = currentItem {
-                Text("Currently: \(item.entry.projectName) (\(item.entry.formattedSize))")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-
-            Spacer().frame(height: 16)
-
-            // Item list
+    private var itemsCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Items")
+                .sectionHeaderStyle()
+                .padding(.horizontal, Theme.Spacing.m)
+                .padding(.top, Theme.Spacing.m)
+                .padding(.bottom, Theme.Spacing.s)
+            Divider()
             ScrollView {
-                VStack(alignment: .leading, spacing: 4) {
+                LazyVStack(spacing: 0) {
                     ForEach(state.deletionItems) { item in
-                        HStack(spacing: 8) {
-                            statusIcon(for: item.status)
-                                .frame(width: 14)
-                            Text(item.entry.projectName)
-                                .font(.system(size: 12))
-                                .foregroundColor(.primary)
-                                .lineLimit(1)
-                            Spacer()
-                            Text(item.entry.formattedSize)
-                                .font(.system(size: 11, design: .monospaced))
-                                .foregroundColor(.secondary)
-                            statusLabel(for: item.status)
-                        }
+                        DeletionRow(item: item, type: state.type(for: item.entry))
+                        Divider().padding(.leading, 40)
                     }
                 }
-                .padding(.horizontal, 20)
             }
-            .frame(maxHeight: 200)
-
-            Spacer()
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .cardStyle(padding: 0)
+    }
+}
+
+struct DeletionRow: View {
+    let item: DeletionItem
+    let type: ArtifactType?
+
+    var body: some View {
+        HStack(spacing: Theme.Spacing.m) {
+            statusIcon
+                .frame(width: 16)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: Theme.Spacing.s) {
+                    Text(item.entry.projectName)
+                        .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
+                    TypeBadge(type: type, fallback: item.entry.typeId)
+                }
+                if let error = item.error, item.status == .failed {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                        .lineLimit(2)
+                } else {
+                    Text(item.entry.shortPath)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+            Spacer(minLength: Theme.Spacing.s)
+            Text(item.entry.formattedSize)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(.secondary)
+            statusLabel
+                .frame(width: 44, alignment: .trailing)
+        }
+        .padding(.horizontal, Theme.Spacing.m)
+        .padding(.vertical, 6)
+        .accessibilityElement(children: .combine)
     }
 
     @ViewBuilder
-    private func statusIcon(for status: DeletionStatus) -> some View {
-        switch status {
+    private var statusIcon: some View {
+        switch item.status {
         case .pending:
             Circle()
-                .fill(Color.gray.opacity(0.3))
+                .fill(Color.gray.opacity(0.35))
                 .frame(width: 8, height: 8)
         case .inProgress:
             ProgressView()
-                .controlSize(.mini)
-                .scaleEffect(0.6)
+                .controlSize(.small)
+                .scaleEffect(0.7)
         case .done:
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 12))
                 .foregroundColor(.green)
         case .failed:
             Image(systemName: "xmark.circle.fill")
-                .font(.system(size: 12))
                 .foregroundColor(.red)
         }
     }
 
     @ViewBuilder
-    private func statusLabel(for status: DeletionStatus) -> some View {
-        switch status {
+    private var statusLabel: some View {
+        switch item.status {
         case .pending:
-            Text("")
-                .font(.system(size: 10))
+            Text("waiting").font(.caption).foregroundColor(Theme.tertiary)
         case .inProgress:
-            Text("...")
-                .font(.system(size: 10))
-                .foregroundColor(.blue)
+            Text("...").font(.caption).foregroundColor(.accentColor)
         case .done:
-            Text("done")
-                .font(.system(size: 10))
-                .foregroundColor(.green)
+            Text("done").font(.caption).foregroundColor(.green)
         case .failed:
-            Text("failed")
-                .font(.system(size: 10))
-                .foregroundColor(.red)
+            Text("failed").font(.caption).foregroundColor(.red)
         }
     }
 }

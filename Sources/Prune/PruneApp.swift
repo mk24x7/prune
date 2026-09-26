@@ -5,6 +5,7 @@ import PruneCore
 @main
 struct PruneApp: App {
     @StateObject private var appState: AppState
+    @AppStorage(AppearancePreference.storageKey) private var appearance: AppearancePreference = .dark
 
     init() {
         let definitions: Definitions
@@ -20,11 +21,42 @@ struct PruneApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(appState)
-                .preferredColorScheme(.dark)
-                .frame(minWidth: 600, minHeight: 500)
+                .frame(minWidth: 900, minHeight: 600)
+                .onAppear { AppearancePreference.current.apply() }
+                .task {
+                    if Snapshot.directory != nil {
+                        await Snapshot.run(state: appState)
+                    }
+                }
         }
-        .defaultSize(width: 720, height: 640)
-        .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: 1040, height: 680)
+        .windowToolbarStyle(.unified)
+        .commands {
+            SidebarCommands()
+            CommandGroup(replacing: .newItem) {}
+            CommandGroup(after: .newItem) {
+                Button(appState.phase == .idle ? "Scan" : "Rescan") { appState.startScan() }
+                    .keyboardShortcut("r", modifiers: .command)
+                    .disabled(!appState.canScan)
+                Button("Stop Scan") { appState.cancelScan() }
+                    .keyboardShortcut(".", modifiers: .command)
+                    .disabled(appState.phase != .scanning)
+            }
+            CommandGroup(after: .toolbar) {
+                Picker("Appearance", selection: Binding(
+                    get: { appearance },
+                    set: { newValue in
+                        appearance = newValue
+                        newValue.apply()
+                    }
+                )) {
+                    ForEach(AppearancePreference.allCases) { option in
+                        Text(option.label).tag(option)
+                    }
+                }
+                Divider()
+            }
+        }
     }
 
     /// The artifact definitions are required for every screen, so a broken or

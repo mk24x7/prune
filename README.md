@@ -31,6 +31,10 @@ under 3 MB.
   <img src="assets/results.png" width="720" alt="Prune results screen">
 </p>
 
+<p align="center">
+  <img src="assets/demo.gif" width="720" alt="Scanning a home folder, selecting artifacts and moving them to the Trash">
+</p>
+
 ## Install
 
 Prune is open source and signed with an ad-hoc signature, not an Apple Developer ID.

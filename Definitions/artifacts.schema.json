@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/mk24x7/prune/Definitions/artifacts.schema.json",
+  "title": "Prune artifact definitions",
+  "description": "Canonical list of regenerable developer artifacts shared by the Prune macOS app and the prune CLI.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "scan", "colors", "types"],
+  "properties": {
+    "version": { "const": 1 },
+    "scan": { "$ref": "#/$defs/scan" },
+    "colors": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/color" },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "types": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/type" },
+      "minItems": 1
+    }
+  },
+  "$defs": {
+    "nonEmptyString": { "type": "string", "minLength": 1 },
+    "nameList": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "pattern": "^[^/]+$" },
+      "uniqueItems": true
+    },
+    "color": {
+      "enum": ["green", "mint", "orange", "red", "brown", "yellow", "teal", "blue", "purple", "cyan", "pink", "gray"]
+    },
+    "scan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maxDepth", "skipUnderHome", "skipAnywhere", "skipPackageExtensions"],
+      "properties": {
+        "maxDepth": { "type": "integer", "minimum": 1, "maximum": 64 },
+        "skipUnderHome": { "$ref": "#/$defs/nameList" },
+        "skipAnywhere": { "$ref": "#/$defs/nameList" },
+        "skipPackageExtensions": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^\\.[A-Za-z0-9]+$" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "pathOverride": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["env"],
+      "properties": {
+        "env": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+        "append": { "type": "string", "minLength": 1, "pattern": "^[^/~].*[^/]$|^[^/~]$" }
+      }
+    },
+    "type": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "kind", "displayName", "description", "nameFrom",
+        "defaultEnabled", "regenerable", "reinstallHint", "color", "icon"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+        "kind": { "enum": ["project", "system", "files"] },
+        "displayName": { "$ref": "#/$defs/nonEmptyString" },
+        "description": { "$ref": "#/$defs/nonEmptyString" },
+        "nameFrom": {
+          "enum": ["packageJson", "cargoToml", "packageSwift", "gradleSettings", "derivedData", "dirname", "parentDirname"]
+        },
+        "defaultEnabled": { "type": "boolean" },
+        "regenerable": { "type": "boolean" },
+        "reinstallHint": { "$ref": "#/$defs/nonEmptyString" },
+        "color": { "$ref": "#/$defs/color" },
+        "icon": { "$ref": "#/$defs/nonEmptyString" },
+        "targets": { "allOf": [{ "$ref": "#/$defs/nameList" }, { "minItems": 1 }] },
+        "siblings": { "$ref": "#/$defs/nameList" },
+        "path": { "type": "string", "pattern": "^~/" },
+        "pathOverrides": { "type": "array", "items": { "$ref": "#/$defs/pathOverride" } },
+        "expand": { "type": "boolean" },
+        "readOnlyTree": { "type": "boolean" },
+        "isFile": { "type": "boolean" },
+        "extensions": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^\\.[A-Za-z0-9]+$" },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "regenerable": { "const": false } }, "required": ["regenerable"] },
+          "then": { "properties": { "defaultEnabled": { "const": false } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "project" } }, "required": ["kind"] },
+          "then": {
+            "required": ["targets", "siblings"],
+            "not": {
+              "anyOf": [
+                { "required": ["path"] },
+                { "required": ["expand"] },
+                { "required": ["pathOverrides"] },
+                { "required": ["extensions"] },
+                { "required": ["isFile"] },
+                { "required": ["readOnlyTree"] }
+              ]
+            }
+          }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "system" } }, "required": ["kind"] },
+          "then": {
+            "required": ["path", "expand", "pathOverrides", "readOnlyTree"],
+            "not": {
+              "anyOf": [
+                { "required": ["targets"] },
+                { "required": ["siblings"] },
+                { "required": ["extensions"] }
+              ]
+            }
+          }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "files" } }, "required": ["kind"] },
+          "then": {
+            "required": ["path", "extensions"],
+            "not": {
+              "anyOf": [
+                { "required": ["targets"] },
+                { "required": ["siblings"] },
+                { "required": ["expand"] },
+                { "required": ["isFile"] },
+                { "required": ["readOnlyTree"] }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

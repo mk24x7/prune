@@ -1,0 +1,69 @@
+name: Bug report
+description: Something in the Prune app or CLI does not work as expected.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If Prune deleted or trashed something outside its declared targets, do not file a public issue.
+        Report it privately as described in SECURITY.md.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - macOS app
+        - CLI
+        - Both
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Prune version
+      description: App > About Prune, or `prune --version`.
+      placeholder: 4.0.0
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: macOS 26.2
+    validations:
+      required: true
+  - type: input
+    id: install
+    attributes:
+      label: Installation method
+      placeholder: Homebrew cask, DMG, npm, built from source
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: Include the exact error message or a screenshot if there is one.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The smallest directory layout and the options or command line that trigger the problem.
+      placeholder: |
+        1. mkdir -p demo/app && touch demo/app/package.json && mkdir demo/app/node_modules
+        2. prune demo --dry-run --categories node
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant output or deletion log lines
+      description: CLI output, or matching lines from ~/Library/Logs/Prune/deletions.jsonl. Remove anything private.
+      render: text

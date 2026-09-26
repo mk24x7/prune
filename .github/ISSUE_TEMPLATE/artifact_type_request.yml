@@ -1,0 +1,59 @@
+name: Artifact type request
+description: Suggest a new kind of regenerable build output or cache for Prune to find.
+labels: ["artifact-type"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Prune only cleans things that a tool recreates automatically or with one documented command.
+        Please fill in every field; requests without a regeneration command cannot be accepted.
+  - type: input
+    id: tool
+    attributes:
+      label: Tool name
+      description: The tool, framework or package manager that creates the artifact.
+      placeholder: Bun
+    validations:
+      required: true
+  - type: input
+    id: name
+    attributes:
+      label: Directory or file name
+      description: For project artifacts, the directory name inside a project. For global caches, the full path using ~ for your home folder.
+      placeholder: .turbo  or  ~/Library/Caches/example
+    validations:
+      required: true
+  - type: input
+    id: sibling
+    attributes:
+      label: Sibling marker file
+      description: A file that always sits next to the directory and proves it belongs to this tool. Leave empty for global caches.
+      placeholder: turbo.json
+  - type: input
+    id: regenerate
+    attributes:
+      label: Regeneration command
+      description: The command that recreates it, or "automatic" if the tool recreates it on its next run.
+      placeholder: npm install
+    validations:
+      required: true
+  - type: dropdown
+    id: safe
+    attributes:
+      label: Is it safe to delete?
+      description: Can it ever contain data that the tool cannot recreate (user settings, credentials, local databases, unpublished work)?
+      options:
+        - Yes, it only holds downloaded or generated data
+        - No, or not sure
+    validations:
+      required: true
+  - type: input
+    id: size
+    attributes:
+      label: Typical size
+      placeholder: 200 MB per project, 5 GB global
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Links to the tool's documentation describing this directory and any environment variable that relocates it.

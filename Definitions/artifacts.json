@@ -1,0 +1,857 @@
+{
+  "version": 1,
+  "scan": {
+    "maxDepth": 10,
+    "skipUnderHome": [
+      "Library",
+      "Applications",
+      "Pictures",
+      "Movies",
+      "Music",
+      "Public",
+      ".Trash"
+    ],
+    "skipAnywhere": [
+      ".git",
+      ".Spotlight-V100",
+      ".fseventsd",
+      ".npm",
+      ".cache",
+      ".yarn",
+      ".pnpm-store",
+      ".bun",
+      ".docker",
+      ".ollama",
+      ".conda",
+      ".anaconda",
+      ".cocoapods",
+      ".cargo",
+      ".rustup",
+      ".oh-my-zsh",
+      ".zsh_sessions",
+      ".vscode",
+      ".cursor",
+      ".windsurf",
+      ".local",
+      ".config",
+      "Wallpapers"
+    ],
+    "skipPackageExtensions": [
+      ".app",
+      ".xcodeproj",
+      ".xcworkspace",
+      ".photoslibrary",
+      ".framework",
+      ".appex"
+    ]
+  },
+  "colors": [
+    "green",
+    "mint",
+    "orange",
+    "red",
+    "brown",
+    "yellow",
+    "teal",
+    "blue",
+    "purple",
+    "cyan",
+    "pink",
+    "gray"
+  ],
+  "types": [
+    {
+      "id": "node",
+      "kind": "project",
+      "displayName": "Node Modules",
+      "description": "JavaScript dependencies",
+      "nameFrom": "packageJson",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "npm install",
+      "color": "green",
+      "icon": "shippingbox",
+      "targets": [
+        "node_modules"
+      ],
+      "siblings": []
+    },
+    {
+      "id": "next",
+      "kind": "project",
+      "displayName": "Next.js Build",
+      "description": "Next.js build output",
+      "nameFrom": "packageJson",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "next build",
+      "color": "mint",
+      "icon": "n.square",
+      "targets": [
+        ".next"
+      ],
+      "siblings": [
+        "next.config.js",
+        "next.config.mjs",
+        "next.config.ts",
+        "package.json"
+      ]
+    },
+    {
+      "id": "nuxt",
+      "kind": "project",
+      "displayName": "Nuxt Build",
+      "description": "Nuxt build output",
+      "nameFrom": "packageJson",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "nuxt build",
+      "color": "mint",
+      "icon": "leaf.fill",
+      "targets": [
+        ".nuxt",
+        ".output"
+      ],
+      "siblings": [
+        "nuxt.config.js",
+        "nuxt.config.ts",
+        "nuxt.config.mjs"
+      ]
+    },
+    {
+      "id": "sveltekit",
+      "kind": "project",
+      "displayName": "SvelteKit Build",
+      "description": "SvelteKit build output",
+      "nameFrom": "packageJson",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "vite build",
+      "color": "mint",
+      "icon": "flame",
+      "targets": [
+        ".svelte-kit"
+      ],
+      "siblings": [
+        "svelte.config.js",
+        "svelte.config.mjs",
+        "svelte.config.ts"
+      ]
+    },
+    {
+      "id": "astro",
+      "kind": "project",
+      "displayName": "Astro Build",
+      "description": "Astro build cache",
+      "nameFrom": "packageJson",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "astro build",
+      "color": "mint",
+      "icon": "sparkles",
+      "targets": [
+        ".astro"
+      ],
+      "siblings": [
+        "astro.config.mjs",
+        "astro.config.js",
+        "astro.config.ts"
+      ]
+    },
+    {
+      "id": "angular",
+      "kind": "project",
+      "displayName": "Angular Cache",
+      "description": "Angular CLI cache",
+      "nameFrom": "packageJson",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "ng build",
+      "color": "mint",
+      "icon": "a.square",
+      "targets": [
+        ".angular"
+      ],
+      "siblings": [
+        "angular.json"
+      ]
+    },
+    {
+      "id": "turbo",
+      "kind": "project",
+      "displayName": "Turbo Cache",
+      "description": "Turborepo task cache",
+      "nameFrom": "packageJson",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "auto-regenerated on next turbo run",
+      "color": "mint",
+      "icon": "bolt",
+      "targets": [
+        ".turbo"
+      ],
+      "siblings": [
+        "turbo.json",
+        "package.json"
+      ]
+    },
+    {
+      "id": "parcel",
+      "kind": "project",
+      "displayName": "Parcel Cache",
+      "description": "Parcel bundler cache",
+      "nameFrom": "packageJson",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "auto-regenerated on next build",
+      "color": "mint",
+      "icon": "shippingbox.fill",
+      "targets": [
+        ".parcel-cache"
+      ],
+      "siblings": [
+        "package.json"
+      ]
+    },
+    {
+      "id": "swiftpm",
+      "kind": "project",
+      "displayName": "Swift PM",
+      "description": "Swift Package Manager build artifacts",
+      "nameFrom": "packageSwift",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "swift build",
+      "color": "orange",
+      "icon": "swift",
+      "targets": [
+        ".build"
+      ],
+      "siblings": [
+        "Package.swift"
+      ]
+    },
+    {
+      "id": "cocoapods",
+      "kind": "project",
+      "displayName": "CocoaPods",
+      "description": "CocoaPods dependencies",
+      "nameFrom": "parentDirname",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "pod install",
+      "color": "red",
+      "icon": "leaf",
+      "targets": [
+        "Pods"
+      ],
+      "siblings": [
+        "Podfile"
+      ]
+    },
+    {
+      "id": "rust",
+      "kind": "project",
+      "displayName": "Rust",
+      "description": "Rust build artifacts",
+      "nameFrom": "cargoToml",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "cargo build",
+      "color": "brown",
+      "icon": "gearshape.2",
+      "targets": [
+        "target"
+      ],
+      "siblings": [
+        "Cargo.toml"
+      ]
+    },
+    {
+      "id": "pythonvenv",
+      "kind": "project",
+      "displayName": "Python Venv",
+      "description": "Python virtual environments",
+      "nameFrom": "parentDirname",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "python -m venv venv",
+      "color": "yellow",
+      "icon": "terminal",
+      "targets": [
+        "venv",
+        ".venv"
+      ],
+      "siblings": [
+        "requirements.txt",
+        "pyproject.toml",
+        "setup.py",
+        "setup.cfg",
+        "Pipfile"
+      ]
+    },
+    {
+      "id": "pycache",
+      "kind": "project",
+      "displayName": "Python Cache",
+      "description": "Python bytecode cache",
+      "nameFrom": "parentDirname",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "auto-regenerated on next run",
+      "color": "yellow",
+      "icon": "memorychip",
+      "targets": [
+        "__pycache__"
+      ],
+      "siblings": []
+    },
+    {
+      "id": "pytestcache",
+      "kind": "project",
+      "displayName": "Pytest Cache",
+      "description": "pytest test result cache",
+      "nameFrom": "parentDirname",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "auto-regenerated on next test run",
+      "color": "yellow",
+      "icon": "checkmark.seal",
+      "targets": [
+        ".pytest_cache"
+      ],
+      "siblings": []
+    },
+    {
+      "id": "mypycache",
+      "kind": "project",
+      "displayName": "Mypy Cache",
+      "description": "mypy type-check cache",
+      "nameFrom": "parentDirname",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "auto-regenerated on next mypy run",
+      "color": "yellow",
+      "icon": "checkmark.shield",
+      "targets": [
+        ".mypy_cache"
+      ],
+      "siblings": []
+    },
+    {
+      "id": "ruffcache",
+      "kind": "project",
+      "displayName": "Ruff Cache",
+      "description": "Ruff linter cache",
+      "nameFrom": "parentDirname",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "auto-regenerated on next ruff run",
+      "color": "yellow",
+      "icon": "wand.and.stars",
+      "targets": [
+        ".ruff_cache"
+      ],
+      "siblings": []
+    },
+    {
+      "id": "tox",
+      "kind": "project",
+      "displayName": "Tox Cache",
+      "description": "Tox virtualenv cache",
+      "nameFrom": "parentDirname",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "auto-regenerated on next tox run",
+      "color": "yellow",
+      "icon": "testtube.2",
+      "targets": [
+        ".tox"
+      ],
+      "siblings": [
+        "tox.ini",
+        "pyproject.toml"
+      ]
+    },
+    {
+      "id": "gradle",
+      "kind": "project",
+      "displayName": "Gradle Build",
+      "description": "Gradle/Android build outputs",
+      "nameFrom": "gradleSettings",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "./gradlew build",
+      "color": "teal",
+      "icon": "hammer",
+      "targets": [
+        "build"
+      ],
+      "siblings": [
+        "build.gradle",
+        "build.gradle.kts"
+      ]
+    },
+    {
+      "id": "gradlecache",
+      "kind": "project",
+      "displayName": "Gradle Cache",
+      "description": "Gradle project-level cache",
+      "nameFrom": "gradleSettings",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "auto-regenerated on next build",
+      "color": "teal",
+      "icon": "archivebox",
+      "targets": [
+        ".gradle"
+      ],
+      "siblings": [
+        "build.gradle",
+        "build.gradle.kts",
+        "settings.gradle",
+        "settings.gradle.kts"
+      ]
+    },
+    {
+      "id": "xcode-derived",
+      "kind": "system",
+      "displayName": "Xcode DerivedData",
+      "description": "Xcode build artifacts",
+      "nameFrom": "derivedData",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "Xcode rebuilds automatically",
+      "color": "blue",
+      "icon": "xmark.bin",
+      "path": "~/Library/Developer/Xcode/DerivedData",
+      "pathOverrides": [],
+      "expand": true,
+      "readOnlyTree": false
+    },
+    {
+      "id": "xcode-archives",
+      "kind": "system",
+      "displayName": "Xcode Archives",
+      "description": "Xcode archived builds",
+      "nameFrom": "dirname",
+      "defaultEnabled": false,
+      "regenerable": false,
+      "reinstallHint": "Cannot be regenerated. Archives hold the dSYMs needed to symbolicate crash logs from shipped builds.",
+      "color": "blue",
+      "icon": "doc.zipper",
+      "path": "~/Library/Developer/Xcode/Archives",
+      "pathOverrides": [],
+      "expand": true,
+      "readOnlyTree": false
+    },
+    {
+      "id": "xcode-device-support",
+      "kind": "system",
+      "displayName": "Xcode Device Support",
+      "description": "iOS device debug symbols",
+      "nameFrom": "dirname",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "re-downloaded on device connect",
+      "color": "blue",
+      "icon": "iphone",
+      "path": "~/Library/Developer/Xcode/iOS DeviceSupport",
+      "pathOverrides": [],
+      "expand": true,
+      "readOnlyTree": false
+    },
+    {
+      "id": "xcode-cache",
+      "kind": "system",
+      "displayName": "Xcode Cache",
+      "description": "Xcode caches",
+      "nameFrom": "dirname",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "Xcode rebuilds cache automatically",
+      "color": "blue",
+      "icon": "internaldrive",
+      "path": "~/Library/Caches/com.apple.dt.Xcode",
+      "pathOverrides": [],
+      "expand": false,
+      "readOnlyTree": false
+    },
+    {
+      "id": "gradle-global",
+      "kind": "system",
+      "displayName": "Gradle Global Cache",
+      "description": "Global Gradle download cache",
+      "nameFrom": "dirname",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "re-downloaded on next build",
+      "color": "teal",
+      "icon": "archivebox.fill",
+      "path": "~/.gradle/caches",
+      "pathOverrides": [
+        {
+          "env": "GRADLE_USER_HOME",
+          "append": "caches"
+        }
+      ],
+      "expand": false,
+      "readOnlyTree": false
+    },
+    {
+      "id": "homebrew-cache",
+      "kind": "system",
+      "displayName": "Homebrew Cache",
+      "description": "Homebrew downloaded packages",
+      "nameFrom": "dirname",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "re-downloaded on next install",
+      "color": "purple",
+      "icon": "mug",
+      "path": "~/Library/Caches/Homebrew",
+      "pathOverrides": [
+        {
+          "env": "HOMEBREW_CACHE"
+        }
+      ],
+      "expand": false,
+      "readOnlyTree": false
+    },
+    {
+      "id": "npm-cache",
+      "kind": "system",
+      "displayName": "npm Cache",
+      "description": "Global npm package cache",
+      "nameFrom": "dirname",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "re-downloaded on next npm install",
+      "color": "green",
+      "icon": "tray.full",
+      "path": "~/.npm",
+      "pathOverrides": [
+        {
+          "env": "npm_config_cache"
+        }
+      ],
+      "expand": false,
+      "readOnlyTree": false
+    },
+    {
+      "id": "yarn-cache",
+      "kind": "system",
+      "displayName": "Yarn Cache",
+      "description": "Global Yarn package cache",
+      "nameFrom": "dirname",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "re-downloaded on next yarn install",
+      "color": "green",
+      "icon": "circle.grid.cross",
+      "path": "~/Library/Caches/Yarn",
+      "pathOverrides": [
+        {
+          "env": "YARN_CACHE_FOLDER"
+        }
+      ],
+      "expand": false,
+      "readOnlyTree": false
+    },
+    {
+      "id": "pnpm-store",
+      "kind": "system",
+      "displayName": "pnpm Store",
+      "description": "Global pnpm content-addressable store",
+      "nameFrom": "dirname",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "re-downloaded on next pnpm install",
+      "color": "green",
+      "icon": "cylinder.split.1x2",
+      "path": "~/Library/pnpm/store",
+      "pathOverrides": [
+        {
+          "env": "npm_config_store_dir"
+        }
+      ],
+      "expand": false,
+      "readOnlyTree": false
+    },
+    {
+      "id": "bun-cache",
+      "kind": "system",
+      "displayName": "Bun Cache",
+      "description": "Global Bun install cache",
+      "nameFrom": "dirname",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "re-downloaded on next bun install",
+      "color": "green",
+      "icon": "hare",
+      "path": "~/.bun/install/cache",
+      "pathOverrides": [
+        {
+          "env": "BUN_INSTALL",
+          "append": "install/cache"
+        }
+      ],
+      "expand": false,
+      "readOnlyTree": false
+    },
+    {
+      "id": "pip-cache",
+      "kind": "system",
+      "displayName": "pip Cache",
+      "description": "Global pip wheel cache",
+      "nameFrom": "dirname",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "re-downloaded on next pip install",
+      "color": "yellow",
+      "icon": "tray",
+      "path": "~/Library/Caches/pip",
+      "pathOverrides": [
+        {
+          "env": "PIP_CACHE_DIR"
+        }
+      ],
+      "expand": false,
+      "readOnlyTree": false
+    },
+    {
+      "id": "cargo-registry",
+      "kind": "system",
+      "displayName": "Cargo Registry Cache",
+      "description": "Cargo registry download cache",
+      "nameFrom": "dirname",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "re-downloaded on next cargo build",
+      "color": "brown",
+      "icon": "shippingbox.and.arrow.backward",
+      "path": "~/.cargo/registry",
+      "pathOverrides": [
+        {
+          "env": "CARGO_HOME",
+          "append": "registry"
+        }
+      ],
+      "expand": false,
+      "readOnlyTree": false
+    },
+    {
+      "id": "go-mod-cache",
+      "kind": "system",
+      "displayName": "Go Module Cache",
+      "description": "Go module download cache",
+      "nameFrom": "dirname",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "re-downloaded on next go build",
+      "color": "cyan",
+      "icon": "g.square",
+      "path": "~/go/pkg/mod",
+      "pathOverrides": [
+        {
+          "env": "GOMODCACHE"
+        },
+        {
+          "env": "GOPATH",
+          "append": "pkg/mod"
+        }
+      ],
+      "expand": false,
+      "readOnlyTree": true
+    },
+    {
+      "id": "puppeteer-cache",
+      "kind": "system",
+      "displayName": "Puppeteer Cache",
+      "description": "Puppeteer downloaded Chromium",
+      "nameFrom": "dirname",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "re-downloaded on next puppeteer run",
+      "color": "pink",
+      "icon": "theatermasks",
+      "path": "~/.cache/puppeteer",
+      "pathOverrides": [
+        {
+          "env": "PUPPETEER_CACHE_DIR"
+        }
+      ],
+      "expand": false,
+      "readOnlyTree": false
+    },
+    {
+      "id": "playwright-cache",
+      "kind": "system",
+      "displayName": "Playwright Browsers",
+      "description": "Playwright browser binaries",
+      "nameFrom": "dirname",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "npx playwright install",
+      "color": "pink",
+      "icon": "play.rectangle",
+      "path": "~/Library/Caches/ms-playwright",
+      "pathOverrides": [
+        {
+          "env": "PLAYWRIGHT_BROWSERS_PATH"
+        }
+      ],
+      "expand": false,
+      "readOnlyTree": false
+    },
+    {
+      "id": "electron-cache",
+      "kind": "system",
+      "displayName": "Electron Cache",
+      "description": "Electron downloaded binaries",
+      "nameFrom": "dirname",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "re-downloaded on next electron install",
+      "color": "pink",
+      "icon": "atom",
+      "path": "~/Library/Caches/electron",
+      "pathOverrides": [
+        {
+          "env": "ELECTRON_CACHE"
+        }
+      ],
+      "expand": false,
+      "readOnlyTree": false
+    },
+    {
+      "id": "android-system-images",
+      "kind": "system",
+      "displayName": "Android System Images",
+      "description": "Android emulator system images",
+      "nameFrom": "dirname",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "Re-download from Android Studio SDK Manager",
+      "color": "teal",
+      "icon": "cpu",
+      "path": "~/Library/Android/sdk/system-images",
+      "pathOverrides": [
+        {
+          "env": "ANDROID_HOME",
+          "append": "system-images"
+        },
+        {
+          "env": "ANDROID_SDK_ROOT",
+          "append": "system-images"
+        }
+      ],
+      "expand": true,
+      "readOnlyTree": false
+    },
+    {
+      "id": "android-avd",
+      "kind": "system",
+      "displayName": "Android Virtual Devices",
+      "description": "Android emulator device images and their data",
+      "nameFrom": "dirname",
+      "defaultEnabled": false,
+      "regenerable": false,
+      "reinstallHint": "Cannot be regenerated. Emulator devices contain their own app data and settings.",
+      "color": "teal",
+      "icon": "iphone.gen1",
+      "path": "~/.android/avd",
+      "pathOverrides": [],
+      "expand": true,
+      "readOnlyTree": false
+    },
+    {
+      "id": "gradle-wrapper-dists",
+      "kind": "system",
+      "displayName": "Gradle Wrapper Distributions",
+      "description": "Downloaded Gradle distributions",
+      "nameFrom": "dirname",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "Re-downloaded by ./gradlew on next build",
+      "color": "teal",
+      "icon": "archivebox",
+      "path": "~/.gradle/wrapper/dists",
+      "pathOverrides": [
+        {
+          "env": "GRADLE_USER_HOME",
+          "append": "wrapper/dists"
+        }
+      ],
+      "expand": true,
+      "readOnlyTree": false
+    },
+    {
+      "id": "coresimulator-caches",
+      "kind": "system",
+      "displayName": "Simulator Caches",
+      "description": "iOS Simulator caches",
+      "nameFrom": "dirname",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "Rebuilt by the iOS Simulator automatically",
+      "color": "blue",
+      "icon": "iphone",
+      "path": "~/Library/Developer/CoreSimulator/Caches",
+      "pathOverrides": [],
+      "expand": false,
+      "readOnlyTree": false
+    },
+    {
+      "id": "ios-device-backups",
+      "kind": "system",
+      "displayName": "iOS Device Backups",
+      "description": "Finder and iTunes device backups",
+      "nameFrom": "dirname",
+      "defaultEnabled": false,
+      "regenerable": false,
+      "reinstallHint": "Cannot be regenerated. These are your iPhone and iPad backups.",
+      "color": "blue",
+      "icon": "externaldrive",
+      "path": "~/Library/Application Support/MobileSync/Backup",
+      "pathOverrides": [],
+      "expand": true,
+      "readOnlyTree": false
+    },
+    {
+      "id": "docker-disk-image",
+      "kind": "system",
+      "displayName": "Docker Disk Image",
+      "description": "Docker Desktop virtual machine disk (all images, containers and volumes)",
+      "nameFrom": "dirname",
+      "defaultEnabled": false,
+      "regenerable": true,
+      "reinstallHint": "Docker Desktop recreates it, but every image, container and volume is lost. Prefer docker system prune.",
+      "color": "cyan",
+      "icon": "shippingbox",
+      "path": "~/Library/Containers/com.docker.docker/Data/vms/0/data/Docker.raw",
+      "pathOverrides": [],
+      "expand": false,
+      "readOnlyTree": false,
+      "isFile": true
+    },
+    {
+      "id": "downloads-installers",
+      "kind": "files",
+      "displayName": "Downloaded Installers",
+      "description": "Installer images and packages left in Downloads",
+      "nameFrom": "dirname",
+      "defaultEnabled": false,
+      "regenerable": true,
+      "reinstallHint": "Re-download the installer if needed",
+      "color": "gray",
+      "icon": "arrow.down.circle",
+      "path": "~/Downloads",
+      "extensions": [
+        ".dmg",
+        ".pkg"
+      ],
+      "pathOverrides": []
+    }
+  ]
+}

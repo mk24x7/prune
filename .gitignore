@@ -10,10 +10,12 @@ Package.resolved
 *.app
 *.dmg
 *.zip
+Prune-*.zip
+Prune-*.dmg
+SHA256SUMS.txt
 
 # CLI
 cli/node_modules/
-cli/package-lock.json
 
 # macOS
 .DS_Store

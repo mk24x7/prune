@@ -1,5 +1,5 @@
 {
-  "name": "prune-cli",
+  "name": "@mk24x7/prune",
   "version": "4.0.0",
   "description": "Find and safely remove regenerable developer artifacts (node_modules, build outputs, Xcode and package manager caches) on macOS",
   "type": "module",

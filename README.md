@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://github.com/mk24x7/prune/releases/latest"><img src="https://img.shields.io/github/v/release/mk24x7/prune?style=flat-square&color=brightgreen" alt="Latest release"></a>
   <a href="https://github.com/mk24x7/prune/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/mk24x7/prune/ci.yml?branch=main&style=flat-square&label=CI" alt="CI"></a>
-  <a href="https://www.npmjs.com/package/prune-cli"><img src="https://img.shields.io/npm/v/prune-cli?style=flat-square&label=npm%20prune-cli" alt="npm"></a>
+  <a href="https://www.npmjs.com/package/@mk24x7/prune"><img src="https://img.shields.io/npm/v/%40mk24x7%2Fprune?style=flat-square&label=npm" alt="npm"></a>
   <img src="https://img.shields.io/badge/platform-macOS%2013%2B-blue?style=flat-square" alt="Platform">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/mk24x7/prune?style=flat-square" alt="License"></a>
 </p>
@@ -81,8 +81,8 @@ git clone https://github.com/mk24x7/prune.git && cd prune
 **5. Command line**
 
 ```bash
-npx prune-cli --all --dry-run       # preview without installing
-npm install -g prune-cli            # or: brew install mk24x7/tap/prune-cli
+npx @mk24x7/prune --all --dry-run       # preview without installing
+npm install -g @mk24x7/prune            # or: brew install mk24x7/tap/prune-cli
 prune --categories node --min-age 90 --yes
 ```
 

@@ -13,9 +13,9 @@ the same definitions file, so they always agree on what is safe to remove.
 ## Install
 
 ```sh
-npm install -g prune-cli
+npm install -g @mk24x7/prune
 # or run once
-npx prune-cli --dry-run
+npx @mk24x7/prune --dry-run
 ```
 
 Requires macOS and Node.js 20.17+, 22.13+ or 23.5+.

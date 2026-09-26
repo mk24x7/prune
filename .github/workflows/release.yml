@@ -20,7 +20,7 @@ jobs:
       version: ${{ steps.meta.outputs.version }}
       prerelease: ${{ steps.meta.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           # Full history: build.sh uses the commit count as CFBundleVersion.
           fetch-depth: 0
@@ -150,7 +150,7 @@ jobs:
       # mk24x7/homebrew-tap repository only, with Contents: read and write. The
       # default GITHUB_TOKEN cannot push to another repository.
       - name: Check out mk24x7/homebrew-tap
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: mk24x7/homebrew-tap
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}

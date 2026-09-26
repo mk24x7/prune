@@ -5,186 +5,266 @@
 <h1 align="center">Prune</h1>
 
 <p align="center">
-  <strong>Reclaim disk space by cleaning up developer build artifacts</strong>
+  <strong>Find and safely remove the gigabytes your toolchains left behind.</strong>
 </p>
 
 <p align="center">
-  <a href="https://github.com/mk24x7/prune/releases/latest"><img src="https://img.shields.io/github/v/release/mk24x7/prune?style=flat-square&color=brightgreen" alt="Latest Release"></a>
+  <a href="https://github.com/mk24x7/prune/releases/latest"><img src="https://img.shields.io/github/v/release/mk24x7/prune?style=flat-square&color=brightgreen" alt="Latest release"></a>
+  <a href="https://github.com/mk24x7/prune/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/mk24x7/prune/ci.yml?branch=main&style=flat-square&label=CI" alt="CI"></a>
+  <a href="https://www.npmjs.com/package/prune-cli"><img src="https://img.shields.io/npm/v/prune-cli?style=flat-square&label=npm%20prune-cli" alt="npm"></a>
   <img src="https://img.shields.io/badge/platform-macOS%2013%2B-blue?style=flat-square" alt="Platform">
-  <img src="https://img.shields.io/badge/swift-5.9-orange?style=flat-square" alt="Swift">
-  <img src="https://img.shields.io/github/repo-size/mk24x7/prune?style=flat-square" alt="Repo Size">
-  <a href="https://github.com/mk24x7/prune/blob/main/LICENSE"><img src="https://img.shields.io/github/license/mk24x7/prune?style=flat-square" alt="License"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/mk24x7/prune?style=flat-square" alt="License"></a>
 </p>
 
 ---
 
-A native macOS app that scans your filesystem for developer build artifacts and caches, shows how much space each one occupies, and lets you selectively delete them. Built with SwiftUI -- no Electron, no web runtime. The entire app is under 2 MB.
+Prune is a native macOS app, with a companion CLI, that scans for regenerable developer
+artifacts and caches, shows what each one costs you in disk space, and moves the ones
+you pick to the Trash. It knows 42 artifact types across Node, Rust, Swift, Python,
+Gradle, Android and Xcode, plus the system caches that other tools ignore: DerivedData,
+Homebrew, pnpm, Go modules, Playwright browsers, Android system images and more.
 
-## Supported Artifact Types
+SwiftUI, no Electron, no web runtime, no network access, no telemetry. The app is
+under 3 MB.
 
-### Project-level (found by scanning)
+<p align="center">
+  <img src="assets/results.png" width="720" alt="Prune results screen">
+</p>
+
+## Install
+
+Prune is open source and signed with an ad-hoc signature, not an Apple Developer ID.
+Pick the install path that suits you.
+
+**1. Homebrew, built from source (no Gatekeeper prompt)**
+
+```bash
+brew install mk24x7/tap/prune
+ln -sfn "$(brew --prefix prune)/Prune.app" /Applications/Prune.app
+```
+
+The app is compiled on your Mac, so it carries no quarantine flag and opens without any
+security dialog. Needs Xcode 15 or later.
+
+**2. Direct download**
+
+Download `Prune-<version>-macos-universal.dmg` or `.zip` from the
+[latest release](https://github.com/mk24x7/prune/releases/latest), verify it against
+`SHA256SUMS.txt`, and copy `Prune.app` to `/Applications`. Then either:
+
+- open it once, click **Done** in the "Apple could not verify" dialog, go to
+  **System Settings > Privacy & Security**, scroll to **Security** and click
+  **Open Anyway** (macOS 15 and 26 no longer offer the Control-click shortcut), or
+- clear the quarantine flag from Terminal:
+
+```bash
+xattr -d com.apple.quarantine /Applications/Prune.app
+```
+
+**3. Homebrew cask (prebuilt, quarantined)**
+
+```bash
+brew install --cask mk24x7/tap/prune-app
+```
+
+Homebrew no longer strips quarantine, so this path shows the same first-launch dialog
+as the direct download. Use it if you manage your Mac with `brew bundle`.
+
+**4. Build from source**
+
+```bash
+git clone https://github.com/mk24x7/prune.git && cd prune
+./build.sh          # builds dist/Prune.app, ad-hoc signed
+./package.sh        # optional: zip, dmg and checksums
+```
+
+**5. Command line**
+
+```bash
+npx prune-cli --all --dry-run       # preview without installing
+npm install -g prune-cli            # or: brew install mk24x7/tap/prune-cli
+prune --categories node --min-age 90 --yes
+```
+
+## What it finds
+
+Detection rules live in one file, [`Definitions/artifacts.json`](Definitions/artifacts.json),
+shared by the app and the CLI. Types marked "no" under Regenerable hold data you cannot
+get back (Xcode archives, emulator devices, iPhone backups); they are off by default and
+Prune warns before touching them. To request a type, open an
+[artifact type request](https://github.com/mk24x7/prune/issues/new?template=artifact_type_request.yml).
+
+<!-- artifact-tables:start -->
+### Project-level
 
 | Category | What it finds | How it detects |
-|----------|--------------|----------------|
-| **Node Modules** | `node_modules` directories | Direct name match |
-| **Next.js Build** | `.next` directories | Requires `next.config.*` or `package.json` sibling |
-| **Nuxt Build** | `.nuxt`, `.output` directories | Requires `nuxt.config.*` sibling |
-| **SvelteKit Build** | `.svelte-kit` directories | Requires `svelte.config.*` sibling |
-| **Astro Build** | `.astro` directories | Requires `astro.config.*` sibling |
-| **Angular Cache** | `.angular` directories | Requires `angular.json` sibling |
-| **Turbo Cache** | `.turbo` directories | Requires `turbo.json` or `package.json` sibling |
-| **Vite Cache** | `.vite` directories | Requires `vite.config.*` or `package.json` sibling |
-| **Parcel Cache** | `.parcel-cache` directories | Requires `package.json` sibling |
-| **Swift PM** | `.build` directories | Requires `Package.swift` sibling |
-| **CocoaPods** | `Pods` directories | Requires `Podfile` sibling |
-| **Rust** | `target` directories | Requires `Cargo.toml` sibling |
-| **Python Venv** | `venv`, `.venv` directories | Requires Python project file sibling |
-| **Python Cache** | `__pycache__` directories | Direct name match |
-| **Pytest Cache** | `.pytest_cache` directories | Direct name match |
-| **Mypy Cache** | `.mypy_cache` directories | Direct name match |
-| **Ruff Cache** | `.ruff_cache` directories | Direct name match |
-| **Tox Cache** | `.tox` directories | Requires `tox.ini` or `pyproject.toml` sibling |
-| **Gradle Build** | `build` directories | Requires `build.gradle` / `build.gradle.kts` sibling |
-| **Gradle Cache** | `.gradle` directories | Requires Gradle project file sibling |
+| --- | --- | --- |
+| Node Modules (`node`) | `node_modules` | always |
+| Next.js Build (`next`) | `.next` | next to any of `next.config.js`, `next.config.mjs`, `next.config.ts`, `package.json` |
+| Nuxt Build (`nuxt`) | `.nuxt`, `.output` | next to any of `nuxt.config.js`, `nuxt.config.ts`, `nuxt.config.mjs` |
+| SvelteKit Build (`sveltekit`) | `.svelte-kit` | next to any of `svelte.config.js`, `svelte.config.mjs`, `svelte.config.ts` |
+| Astro Build (`astro`) | `.astro` | next to any of `astro.config.mjs`, `astro.config.js`, `astro.config.ts` |
+| Angular Cache (`angular`) | `.angular` | next to any of `angular.json` |
+| Turbo Cache (`turbo`) | `.turbo` | next to any of `turbo.json`, `package.json` |
+| Parcel Cache (`parcel`) | `.parcel-cache` | next to any of `package.json` |
+| Swift PM (`swiftpm`) | `.build` | next to any of `Package.swift` |
+| CocoaPods (`cocoapods`) | `Pods` | next to any of `Podfile` |
+| Rust (`rust`) | `target` | next to any of `Cargo.toml` |
+| Python Venv (`pythonvenv`) | `venv`, `.venv` | next to any of `requirements.txt`, `pyproject.toml`, `setup.py`, `setup.cfg`, `Pipfile` |
+| Python Cache (`pycache`) | `__pycache__` | always |
+| Pytest Cache (`pytestcache`) | `.pytest_cache` | always |
+| Mypy Cache (`mypycache`) | `.mypy_cache` | always |
+| Ruff Cache (`ruffcache`) | `.ruff_cache` | always |
+| Tox Cache (`tox`) | `.tox` | next to any of `tox.ini`, `pyproject.toml` |
+| Gradle Build (`gradle`) | `build` | next to any of `build.gradle`, `build.gradle.kts` |
+| Gradle Cache (`gradlecache`) | `.gradle` | next to any of `build.gradle`, `build.gradle.kts`, `settings.gradle`, `settings.gradle.kts` |
 
-### System-level (fixed locations)
+### System-level
 
-| Category | Path |
-|----------|------|
-| **Xcode DerivedData** | `~/Library/Developer/Xcode/DerivedData` |
-| **Xcode Archives** | `~/Library/Developer/Xcode/Archives` |
-| **Xcode Device Support** | `~/Library/Developer/Xcode/iOS DeviceSupport` |
-| **Xcode Cache** | `~/Library/Caches/com.apple.dt.Xcode` |
-| **Gradle Global Cache** | `~/.gradle/caches` |
-| **Homebrew Cache** | `~/Library/Caches/Homebrew` |
-| **npm Cache** | `~/.npm` |
-| **Yarn Cache** | `~/Library/Caches/Yarn` |
-| **pnpm Store** | `~/Library/pnpm/store` |
-| **Bun Cache** | `~/.bun/install/cache` |
-| **pip Cache** | `~/Library/Caches/pip` |
-| **Cargo Registry Cache** | `~/.cargo/registry` |
-| **Go Module Cache** | `~/go/pkg/mod` |
-| **Puppeteer Cache** | `~/.cache/puppeteer` |
-| **Playwright Browsers** | `~/Library/Caches/ms-playwright` |
-| **Electron Cache** | `~/Library/Caches/electron` |
+| Category | Path | Default | Regenerable |
+| --- | --- | --- | --- |
+| Xcode DerivedData (`xcode-derived`) | `~/Library/Developer/Xcode/DerivedData` (each subfolder) | on | yes |
+| Xcode Archives (`xcode-archives`) | `~/Library/Developer/Xcode/Archives` (each subfolder) | off | no |
+| Xcode Device Support (`xcode-device-support`) | `~/Library/Developer/Xcode/iOS DeviceSupport` (each subfolder) | on | yes |
+| Xcode Cache (`xcode-cache`) | `~/Library/Caches/com.apple.dt.Xcode` | on | yes |
+| Gradle Global Cache (`gradle-global`) | `~/.gradle/caches`, or `$GRADLE_USER_HOME/caches` | on | yes |
+| Homebrew Cache (`homebrew-cache`) | `~/Library/Caches/Homebrew`, or `$HOMEBREW_CACHE` | on | yes |
+| npm Cache (`npm-cache`) | `~/.npm`, or `$npm_config_cache` | on | yes |
+| Yarn Cache (`yarn-cache`) | `~/Library/Caches/Yarn`, or `$YARN_CACHE_FOLDER` | on | yes |
+| pnpm Store (`pnpm-store`) | `~/Library/pnpm/store`, or `$npm_config_store_dir` | on | yes |
+| Bun Cache (`bun-cache`) | `~/.bun/install/cache`, or `$BUN_INSTALL/install/cache` | on | yes |
+| pip Cache (`pip-cache`) | `~/Library/Caches/pip`, or `$PIP_CACHE_DIR` | on | yes |
+| Cargo Registry Cache (`cargo-registry`) | `~/.cargo/registry`, or `$CARGO_HOME/registry` | on | yes |
+| Go Module Cache (`go-mod-cache`) | `~/go/pkg/mod`, or `$GOMODCACHE`, `$GOPATH/pkg/mod` | on | yes |
+| Puppeteer Cache (`puppeteer-cache`) | `~/.cache/puppeteer`, or `$PUPPETEER_CACHE_DIR` | on | yes |
+| Playwright Browsers (`playwright-cache`) | `~/Library/Caches/ms-playwright`, or `$PLAYWRIGHT_BROWSERS_PATH` | on | yes |
+| Electron Cache (`electron-cache`) | `~/Library/Caches/electron`, or `$ELECTRON_CACHE` | on | yes |
+| Android System Images (`android-system-images`) | `~/Library/Android/sdk/system-images` (each subfolder), or `$ANDROID_HOME/system-images`, `$ANDROID_SDK_ROOT/system-images` | on | yes |
+| Android Virtual Devices (`android-avd`) | `~/.android/avd` (each subfolder) | off | no |
+| Gradle Wrapper Distributions (`gradle-wrapper-dists`) | `~/.gradle/wrapper/dists` (each subfolder), or `$GRADLE_USER_HOME/wrapper/dists` | on | yes |
+| Simulator Caches (`coresimulator-caches`) | `~/Library/Developer/CoreSimulator/Caches` | on | yes |
+| iOS Device Backups (`ios-device-backups`) | `~/Library/Application Support/MobileSync/Backup` (each subfolder) | off | no |
+| Docker Disk Image (`docker-disk-image`) | `~/Library/Containers/com.docker.docker/Data/vms/0/data/Docker.raw` | off | yes |
 
-## Screenshots
+### Other
 
-> *Coming soon*
+| Category | What it finds | Default | Regenerable |
+| --- | --- | --- | --- |
+| Downloaded Installers (`downloads-installers`) | `.dmg`, `.pkg` files in `~/Downloads` | off | yes |
+<!-- artifact-tables:end -->
 
-## Download
+## Safety
 
-Grab the latest release from the [Releases page](https://github.com/mk24x7/prune/releases/latest):
+Prune deletes things for a living, so it is built to be boring about it.
 
-| Asset | Description |
-|-------|-------------|
-| **Prune.dmg** | Disk image -- mount, drag to Applications |
-| **Prune-app.zip** | Zipped app bundle -- unzip and run |
+- **Trash by default.** Items go to the Trash through the same API Finder uses, so
+  "Put Back" works. Permanent deletion is a separate button, never the default.
+- **Sibling-file detection.** `target/` is only Rust if `Cargo.toml` sits next to it;
+  `build/` is only Gradle next to a `build.gradle`. Names alone never qualify.
+- **Re-verified at deletion time.** Right before each removal Prune checks again that
+  the path is a real directory (never a symlink), still under the folder you scanned,
+  still has its marker file, and still matches the type you selected. Anything that
+  fails is skipped and logged.
+- **Never follows symlinks, never enters app bundles or `.git`.**
+- **Dry run in the CLI** (`--dry-run`, `--json`) shows exactly what would be removed
+  without prompting for anything.
+- **Deletion log** at `~/Library/Logs/Prune/deletions.jsonl`, one line per item and per
+  run, so you can always see what happened.
+- **Honest numbers.** Sizes are estimates from `du`; single files use allocated size.
+  After a permanent delete Prune measures the volume before and after and reports the
+  real figure next to the estimate.
+- **Minimum age filter** so anything you touched in the last 7, 30, 90 or 180 days is
+  left alone.
+- **No network, no analytics, no background process.** It runs when you open it.
 
-### First launch
+## Compared with
 
-The app is ad-hoc signed (no Apple Developer certificate). On first launch, macOS will block it:
+| | Prune | npkill | kondo | DevCleaner for Xcode |
+|---|---|---|---|---|
+| Interface | Native macOS app + CLI | Terminal | Terminal | Native macOS app |
+| Platforms | macOS 13+ (CLI also runs on Linux for project artifacts) | macOS, Linux, Windows | macOS, Linux, Windows | macOS |
+| Project artifacts | 19 types across JS, Rust, Swift, Python, Gradle | `node_modules` only | About 15 ecosystems | none |
+| System caches | 22 (Xcode, Homebrew, npm, pnpm, Go, Cargo, Android, Playwright...) | none | none | Xcode only |
+| Deletes to Trash | yes, default | no | no | no |
+| Re-verifies before delete | yes | no | no | n/a |
+| Distribution | Homebrew tap, DMG, npm | npm | cargo, Homebrew, AUR | Mac App Store |
 
-1. Open **System Settings** > **Privacy & Security**
-2. Scroll down and click **Open Anyway** next to the Prune message
-3. Subsequent launches will work normally
+npkill and kondo are excellent if you want one cross-platform terminal tool. Prune exists
+for people who want a Mac app that also handles the caches under `~/Library`.
 
-## Features
+## CLI reference
 
-- Scan any directory (defaults to home directory)
-- Select which artifact types to scan for from the landing screen
-- Smart scanning -- skips `.Trash`, `Library`, `.git`, IDE caches, and other unproductive paths
-- Sibling-file detection to avoid false positives (e.g. only matches `target/` when `Cargo.toml` exists)
-- System-level cache scanning at known macOS paths (Xcode, Gradle, Homebrew)
-- Shows project name, category, size, full path, and last modified age
-- Color-coded size badges (red > 500 MB, orange > 100 MB, green otherwise)
-- Filter results by category
-- Sort by size, name, age, or path
-- Select all / deselect all with one click
-- Confirmation dialog before deletion
-- Per-item progress and status during deletion
-- Summary with total space freed and per-category breakdown
+```
+prune [path] [options]
 
-## Build from source
+Selection:
+  --categories <list>     Comma-separated type ids (see --list-categories)
+  --all                   Every type, including ones that are not regenerable
+  --list-categories       Show all type ids and exit
+  --include-hidden        Also descend into hidden directories
+  --max-depth <n>         Maximum directory depth below path
+  --min-age <days>        Only items not modified in the last <days> days
+  --min-size <n[KB|MB|GB]> Only items at least this large
 
-Requires Swift 5.9+ and macOS 13+.
+Deletion:
+  --dry-run               Scan and list only; never prompts, never deletes
+  --permanent             Delete permanently instead of moving to the Trash
+  -y, --yes               Select every item found and skip prompts
+                          (requires --categories or --all)
 
-```bash
-git clone https://github.com/mk24x7/prune.git
-cd prune
+Output:
+  --json                  One JSON document on stdout; implies --dry-run unless --yes
+  --no-color              Disable colors (NO_COLOR is also honoured)
+  --log-dir <path>        Deletion log directory (default ~/Library/Logs/Prune)
+  -h, --help              Show help
+  -V, --version           Show the version
 
-# Build and assemble .app bundle
-./build.sh
-
-# Optional: create DMG
-./dmg.sh
+Exit codes: 0 success, 1 runtime error, 2 usage error, 3 some items could not be removed
 ```
 
-The built `Prune.app` will be in the project root.
+## FAQ
 
-## CLI
+**Why the Gatekeeper dialog?** Prune is not notarized because it is a free, open-source
+side project and Apple's Developer Program costs 99 USD a year. The Homebrew formula
+avoids the dialog entirely by compiling on your machine. If you would like to sponsor
+notarization, open a discussion.
 
-A Node.js command-line version is included in the `cli/` directory for terminal users:
+**Do I need Full Disk Access?** No. Prune only reads folders you point it at. macOS asks
+once per protected folder (Desktop, Documents, Downloads). Caches under `~/Library` need
+no extra permission, except iPhone backups, which macOS protects and Prune reports as
+"could not be read".
 
-```bash
-cd cli
-npm install
+**Why do pnpm projects look small?** pnpm hard-links every package into a global store,
+so a project's `node_modules` shares its blocks with the store. `du` counts shared
+blocks once per run, so per-project sizes understate what you would reclaim and the
+pnpm store entry shows the real total.
 
-# Interactive mode (prompts for category selection)
-node node-cleanup.js
+**Why are Xcode Archives, Android devices and iPhone backups off by default?** They
+are not regenerable. Archives hold the dSYMs you need to symbolicate crash logs from
+shipped builds; the others hold user data.
 
-# Scan specific categories
-node node-cleanup.js --categories node,rust,xcode-derived
+**The Go module cache failed to delete.** Go marks that tree read-only. Prune's
+permanent mode fixes the permissions and retries; Trash mode only needs to rename the
+top folder, so it is unaffected.
 
-# Scan all categories
-node node-cleanup.js --all
-
-# Scan a specific directory
-node node-cleanup.js ~/projects --categories node,swiftpm
-
-# Preview without deleting
-node node-cleanup.js --all --dry-run
-
-# List available categories
-node node-cleanup.js --list-categories
-```
-
-Requires Node.js 18+. Features interactive category selection, checkboxes, colored output, and spinner animations.
+**Does it respect `GOMODCACHE`, `CARGO_HOME` and friends?** Yes, when the variable is
+set in the environment Prune runs in. An app launched from Finder does not see your
+shell exports; the CLI does.
 
 ## How it works
 
-1. **Scan** -- Iterative depth-first search (max depth 8) using `FileManager.contentsOfDirectory`. Skips known unproductive directories. Uses sibling-file detection for ambiguous directory names (e.g. `build/` is only matched when `build.gradle` exists alongside it). System-level caches are checked at known absolute paths.
-2. **Size** -- Shells out to `du -sk` for fast, accurate size calculation. Reads project manifests (`package.json`, `Cargo.toml`, `Package.swift`, `settings.gradle`) for project names.
-3. **Delete** -- Uses `FileManager.removeItem` for deletion. Safety guards verify each path against allowed directory names and known system paths before deletion. Reports per-item success/failure.
+1. **Scan.** An iterative depth-first walk (default depth 10) over the folder you pick,
+   skipping `~/Library`, `.git`, app bundles and known cache roots. System caches are
+   checked at their fixed locations, honouring environment overrides.
+2. **Size.** `du -sk` per item, six at a time, with project names read from
+   `package.json`, `Cargo.toml`, `Package.swift` or `settings.gradle`.
+3. **Delete.** Verify, then `trashItem` (or `removeItem` on request), then log.
 
-## Project structure
+## Contributing
 
-```
-prune/
-  Package.swift              # Swift Package Manager config
-  Sources/                   # SwiftUI app (13 files)
-    PruneApp.swift           # App entry point
-    AppState.swift           # Observable state machine
-    ArtifactDefinitions.swift# Artifact type registry and detection rules
-    Scanner.swift            # Actor-based filesystem scanner
-    Sizer.swift              # Size calculation + project name extraction
-    Deleter.swift            # Directory deletion with safety guards
-    Models.swift             # Data types, enums, ArtifactCategory
-    ContentView.swift        # Phase-based view routing
-    LandingView.swift        # Category selection + scan trigger
-    ScanningView.swift       # Scan progress display
-    ResultsView.swift        # Results list with category filter
-    DeletingView.swift       # Deletion progress
-    SummaryView.swift        # Completion summary with breakdown
-  cli/                       # Node.js CLI tool
-    node-cleanup.js          # CLI entry point
-    lib/                     # Scanner, sizer, deleter, UI, constants
-  build.sh                   # Build + assemble .app bundle
-  dmg.sh                     # Create DMG installer
-  Info.plist                 # App metadata
-  AppIcon.icns               # App icon
-```
+See [CONTRIBUTING.md](CONTRIBUTING.md). Adding an artifact type is one JSON entry, one
+test fixture and a regenerated table. Security issues: [SECURITY.md](SECURITY.md).
 
 ## License
 
-MIT
+[MIT](LICENSE)

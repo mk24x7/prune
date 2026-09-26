@@ -1,18 +1,55 @@
 {
   "name": "prune-cli",
-  "version": "3.1.0",
-  "description": "Find and interactively delete developer build artifacts to free disk space",
+  "version": "4.0.0",
+  "description": "Find and safely remove regenerable developer artifacts (node_modules, build outputs, Xcode and package manager caches) on macOS",
   "type": "module",
+  "license": "MIT",
+  "author": "Mukul Kumar Yadav",
   "bin": {
-    "prune": "./node-cleanup.js"
+    "prune": "./prune.js"
   },
+  "files": [
+    "prune.js",
+    "lib/",
+    "artifacts.json",
+    "README.md",
+    "LICENSE"
+  ],
   "engines": {
-    "node": ">=18.0.0"
+    "node": "^20.17.0 || ^22.13.0 || >=23.5.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mk24x7/prune.git",
+    "directory": "cli"
+  },
+  "homepage": "https://github.com/mk24x7/prune#readme",
+  "bugs": {
+    "url": "https://github.com/mk24x7/prune/issues"
+  },
+  "keywords": [
+    "cleanup",
+    "disk-space",
+    "node_modules",
+    "macos",
+    "xcode",
+    "deriveddata",
+    "cache",
+    "developer-tools",
+    "cli"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "check:definitions": "node scripts/check-definitions.js",
+    "prepack": "cp ../LICENSE ./LICENSE && cp ../Definitions/artifacts.json ./artifacts.json",
+    "postpack": "rm -f ./LICENSE ./artifacts.json"
   },
   "dependencies": {
-    "@inquirer/checkbox": "^5.1.0",
-    "@inquirer/confirm": "^6.0.8",
-    "chalk": "^5.4.1",
-    "ora": "^8.2.0"
+    "@inquirer/checkbox": "^5.2.5",
+    "@inquirer/confirm": "^6.3.2"
   }
 }

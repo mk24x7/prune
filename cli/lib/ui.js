@@ -1,255 +1,205 @@
-import checkbox from '@inquirer/checkbox';
+// Human-facing output and interactive prompts. Everything is ASCII; the
+// inquirer prompts get an ASCII theme instead of their default glyphs.
+
+import checkbox, { Separator } from '@inquirer/checkbox';
 import confirm from '@inquirer/confirm';
-import chalk from 'chalk';
-import os from 'node:os';
-import { ARTIFACT_CATEGORIES } from './constants.js';
 
-const HOME = os.homedir();
+const KB = 1024;
+const MB = KB * 1024;
+const GB = MB * 1024;
 
-/**
- * Format bytes into a human-readable string with color coding.
- * Red for >500MB, yellow for >100MB, green otherwise.
- */
-export function formatSize(bytes) {
-  let value, unit;
-
-  if (bytes >= 1024 * 1024 * 1024) {
-    value = (bytes / (1024 * 1024 * 1024)).toFixed(1);
-    unit = 'GB';
-  } else if (bytes >= 1024 * 1024) {
-    value = (bytes / (1024 * 1024)).toFixed(1);
-    unit = 'MB';
-  } else {
-    value = (bytes / 1024).toFixed(1);
-    unit = 'KB';
-  }
-
-  const text = `${value} ${unit}`;
-
-  if (bytes > 500 * 1024 * 1024) return chalk.red(text);
-  if (bytes > 100 * 1024 * 1024) return chalk.yellow(text);
-  return chalk.green(text);
+export function formatBytes(bytes) {
+  if (bytes === null || bytes === undefined) return '?';
+  if (bytes >= GB) return `${(bytes / GB).toFixed(1)} GB`;
+  if (bytes >= MB) return `${(bytes / MB).toFixed(1)} MB`;
+  return `${(bytes / KB).toFixed(1)} KB`;
 }
 
-/**
- * Format a raw byte count without color (for summaries).
- */
-export function formatSizeRaw(bytes) {
-  if (bytes >= 1024 * 1024 * 1024) {
-    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-  } else if (bytes >= 1024 * 1024) {
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  } else {
-    return `${(bytes / 1024).toFixed(1)} KB`;
-  }
+export function colorSize(bytes, style) {
+  const text = formatBytes(bytes);
+  if (bytes === null || bytes === undefined) return style.dim(text);
+  if (bytes > 500 * MB) return style.red(text);
+  if (bytes > 100 * MB) return style.yellow(text);
+  return style.green(text);
 }
 
-/**
- * Format a date as a relative time string.
- */
-export function formatAge(date) {
-  const now = Date.now();
-  const diffMs = now - date.getTime();
-  const diffMins = Math.floor(diffMs / (1000 * 60));
-  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-  const diffWeeks = Math.floor(diffDays / 7);
-  const diffMonths = Math.floor(diffDays / 30);
-  const diffYears = Math.floor(diffDays / 365);
-
-  if (diffYears > 0) return `${diffYears} year${diffYears > 1 ? 's' : ''} ago`;
-  if (diffMonths > 0) return `${diffMonths} month${diffMonths > 1 ? 's' : ''} ago`;
-  if (diffWeeks > 0) return `${diffWeeks} week${diffWeeks > 1 ? 's' : ''} ago`;
-  if (diffDays > 0) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
-  if (diffHours > 0) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
-  if (diffMins > 0) return `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
+export function formatAge(date, now = Date.now()) {
+  if (!date) return 'age unknown';
+  const mins = Math.floor((now - date.getTime()) / 60000);
+  const units = [
+    [365 * 24 * 60, 'year'],
+    [30 * 24 * 60, 'month'],
+    [7 * 24 * 60, 'week'],
+    [24 * 60, 'day'],
+    [60, 'hour'],
+    [1, 'minute'],
+  ];
+  for (const [size, name] of units) {
+    const n = Math.floor(mins / size);
+    if (n > 0) return `${n} ${name}${n > 1 ? 's' : ''} ago`;
+  }
   return 'just now';
 }
 
-/**
- * Shorten a path by replacing the home directory with ~.
- */
-function shortenPath(fullPath) {
-  if (fullPath.startsWith(HOME)) {
-    return '~' + fullPath.slice(HOME.length);
+export function shortenPath(p, home) {
+  if (home && (p === home || p.startsWith(home.endsWith('/') ? home : `${home}/`))) return `~${p.slice(home.length)}`;
+  return p;
+}
+
+export const plural = (n, word, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
+
+export function sumKnown(entries) {
+  let bytes = 0;
+  let unknown = 0;
+  for (const e of entries) {
+    if (e.sizeUnknown || e.sizeBytes === null) unknown++;
+    else bytes += e.sizeBytes;
   }
-  return fullPath;
+  return { bytes, unknown };
 }
 
-/**
- * Get a colored category label.
- */
-function categoryLabel(categoryId) {
-  const def = ARTIFACT_CATEGORIES[categoryId];
-  const name = def ? def.name : categoryId;
+function totalText(entries) {
+  const { bytes, unknown } = sumKnown(entries);
+  return unknown ? `${formatBytes(bytes)} + ${unknown} of unknown size` : formatBytes(bytes);
+}
 
-  const colors = {
-    node: chalk.green,
-    swiftpm: chalk.hex('#F05138'),
-    cocoapods: chalk.red,
-    rust: chalk.hex('#DEA584'),
-    pythonvenv: chalk.yellow,
-    pycache: chalk.yellow,
-    gradle: chalk.cyan,
-    gradlecache: chalk.cyan,
-    'xcode-derived': chalk.blue,
-    'xcode-archives': chalk.blue,
-    'xcode-device-support': chalk.blue,
-    'xcode-cache': chalk.blue,
-    'gradle-global': chalk.cyan,
-    'homebrew-cache': chalk.magenta,
+// ---------------------------------------------------------------------------
+// Listings
+
+export function typeLabel(type, style) {
+  return style.palette(type?.color, `[${type?.displayName ?? '?'}]`);
+}
+
+export function listCategories(defs, style, out) {
+  const section = (title, types, describe) => {
+    out(style.bold(title));
+    const width = Math.max(...types.map((t) => t.id.length)) + 2;
+    for (const t of types) {
+      const flags = [t.defaultEnabled ? 'default' : 'off by default', t.regenerable ? null : 'NOT REGENERABLE']
+        .filter(Boolean).join(', ');
+      out(`  ${style.bold(t.id.padEnd(width))}${t.displayName} ${style.dim(`(${flags})`)}`);
+      out(`  ${' '.repeat(width)}${style.dim(describe(t))}`);
+    }
+    out('');
   };
-
-  const colorFn = colors[categoryId] || chalk.white;
-  return colorFn(`[${name}]`);
+  out('');
+  section('Project artifacts (found by scanning the path):', defs.projectTypes, (t) => `${t.targets.join(', ')}${t.siblings.length ? ` next to ${t.siblings.join(' | ')}` : ''}`);
+  section('System caches (fixed locations):', defs.systemTypes, (t) => shortenPath(defs.resolveSystemPath(t), defs.home));
+  if (defs.filesTypes.length) {
+    section('Other:', defs.filesTypes, (t) => `${t.extensions.join(', ')} in ${shortenPath(defs.resolveSystemPath(t), defs.home)}`);
+  }
+  out(style.dim('Use: prune --categories node,rust,xcode-derived   or   prune --all'));
+  out('');
 }
 
-/**
- * Prompt the user to select categories to scan.
- */
-export async function promptCategories() {
-  const projectCats = Object.values(ARTIFACT_CATEGORIES).filter((c) => !c.isSystem);
-  const systemCats = Object.values(ARTIFACT_CATEGORIES).filter((c) => c.isSystem);
+export function printEntries(entries, defs, style, out, home) {
+  for (const e of entries) {
+    const type = defs.byId.get(e.typeId);
+    out(`  ${typeLabel(type, style)} ${e.projectName} (${colorSize(e.sizeBytes, style)}) ${style.dim(`- ${formatAge(e.lastModified)}`)}`);
+    out(`      ${style.dim(shortenPath(e.path, home))}`);
+  }
+}
 
-  const choices = [
-    { name: chalk.dim('--- Project Artifacts ---'), value: '__header_project__', disabled: '' },
-    ...projectCats.map((c) => ({ name: c.name, value: c.id, checked: true })),
-    { name: chalk.dim('--- System Caches ---'), value: '__header_system__', disabled: '' },
-    ...systemCats.map((c) => ({ name: c.name, value: c.id, checked: true })),
+export function perTypeBreakdown(entries, defs) {
+  const byType = new Map();
+  for (const e of entries) {
+    const cur = byType.get(e.typeId) ?? { count: 0, bytes: 0, unknown: 0 };
+    cur.count++;
+    if (e.sizeUnknown || e.sizeBytes === null) cur.unknown++;
+    else cur.bytes += e.sizeBytes;
+    byType.set(e.typeId, cur);
+  }
+  return [...byType.entries()]
+    .sort((a, b) => b[1].bytes - a[1].bytes)
+    .map(([id, v]) => ({ id, name: defs.byId.get(id)?.displayName ?? id, ...v }));
+}
+
+/** Warning lines for any non-regenerable types in `typeIds` (empty when none). */
+export function nonRegenerableWarning(typeIds, defs, style) {
+  const types = [...new Set(typeIds)].map((id) => defs.byId.get(id)).filter((t) => t && !t.regenerable);
+  if (types.length === 0) return [];
+  return [
+    style.yellow(style.bold('Warning: the following types are NOT regenerable; deleting them loses data:')),
+    ...types.map((t) => style.yellow(`  - ${t.displayName} (${t.id}): ${t.reinstallHint}`)),
   ];
+}
 
-  const selected = await checkbox({
-    message: 'Select artifact types to scan (space=toggle, a=all, enter=confirm)',
+export function totalsLine(entries) {
+  return `${plural(entries.length, 'item')}, ${totalText(entries)}`;
+}
+
+// ---------------------------------------------------------------------------
+// Prompts
+
+const NON_ASCII = /[^\x20-\x7e]/;
+
+function asciiTheme(style) {
+  return {
+    prefix: { idle: style.cyan('?'), done: style.green('>') },
+    spinner: { interval: 80, frames: ['-', '\\', '|', '/'] },
+    icon: {
+      checked: style.green('[x]'),
+      unchecked: '[ ]',
+      cursor: '>',
+      disabledChecked: '[x]',
+      disabledUnchecked: '[-]',
+    },
+    style: {
+      renderSelectedChoices: (selected) => (selected.length <= 3
+        ? selected.map((c) => c.short).join(', ')
+        : `${selected.length} selected`),
+      keysHelpTip: (keys) => keys
+        .map(([key, action]) => {
+          let k = key;
+          if (NON_ASCII.test(key)) k = action === 'navigate' ? 'up/down' : action === 'submit' ? 'enter' : '';
+          return `${style.bold(k)} ${style.dim(action)}`;
+        })
+        .join(style.dim(', ')),
+    },
+  };
+}
+
+export async function promptCategories(defs, style) {
+  const choice = (t) => ({
+    name: `${t.displayName}${t.regenerable ? '' : style.yellow(' (not regenerable)')}`,
+    short: t.id,
+    value: t.id,
+    checked: t.defaultEnabled,
+  });
+  const choices = [
+    new Separator(style.dim('-- Project artifacts --')),
+    ...defs.projectTypes.map(choice),
+    new Separator(style.dim('-- System caches --')),
+    ...defs.systemTypes.map(choice),
+  ];
+  if (defs.filesTypes.length) {
+    choices.push(new Separator(style.dim('-- Other --')), ...defs.filesTypes.map(choice));
+  }
+  return checkbox({
+    message: 'Select artifact types to scan',
     choices,
     pageSize: 20,
     loop: false,
+    theme: asciiTheme(style),
   });
-
-  return selected.filter((s) => !s.startsWith('__header'));
 }
 
-/**
- * Prompt the user to select artifact directories for deletion.
- */
-export async function promptSelection(entries) {
-  const choices = entries.map((entry) => {
-    const size = formatSize(entry.sizeBytes);
-    const age = chalk.dim(formatAge(entry.lastModified));
-    const shortPath = chalk.dim(shortenPath(entry.path));
-    const catLabel = categoryLabel(entry.categoryId);
-
-    return {
-      name: `${catLabel} ${entry.projectName} (${size}) - ${age}\n    ${shortPath}`,
-      value: entry.path,
-    };
-  });
-
-  const selected = await checkbox({
-    message: 'Select items to delete (space=toggle, a=all, enter=confirm)',
+export async function promptSelection(entries, defs, style, home) {
+  const choices = entries.map((e) => ({
+    name: `${typeLabel(defs.byId.get(e.typeId), style)} ${e.projectName} (${colorSize(e.sizeBytes, style)}) ${style.dim(`- ${formatAge(e.lastModified)}`)}\n      ${style.dim(shortenPath(e.path, home))}`,
+    short: e.projectName,
+    value: e.path,
+  }));
+  const picked = new Set(await checkbox({
+    message: 'Select items to remove',
     choices,
     pageSize: 15,
     loop: false,
-  });
-
-  return selected;
+    theme: asciiTheme(style),
+  }));
+  return entries.filter((e) => picked.has(e.path));
 }
 
-/**
- * Prompt the user to confirm deletion.
- */
-export async function promptConfirm(selectedPaths, entries) {
-  const entryMap = new Map(entries.map((e) => [e.path, e]));
-  const totalBytes = selectedPaths.reduce(
-    (sum, p) => sum + (entryMap.get(p)?.sizeBytes || 0),
-    0
-  );
-
-  // Show per-category breakdown
-  const catBytes = {};
-  for (const p of selectedPaths) {
-    const entry = entryMap.get(p);
-    if (entry) {
-      const catId = entry.categoryId;
-      catBytes[catId] = (catBytes[catId] || 0) + entry.sizeBytes;
-    }
-  }
-
-  console.log(
-    `\nSelected ${chalk.bold(selectedPaths.length)} item${selectedPaths.length === 1 ? '' : 's'} totaling ${chalk.bold.red(formatSizeRaw(totalBytes))}`
-  );
-
-  for (const [catId, bytes] of Object.entries(catBytes).sort((a, b) => b[1] - a[1])) {
-    const def = ARTIFACT_CATEGORIES[catId];
-    console.log(`  ${def ? def.name : catId}: ${formatSizeRaw(bytes)}`);
-  }
-
-  console.log('');
-
-  return confirm({
-    message: 'Delete these items?',
-    default: false,
-  });
-}
-
-/**
- * Print the final summary after deletion.
- */
-export function printSummary(deleted, failed, entries) {
-  const entryMap = new Map(entries.map((e) => [e.path, e]));
-  const freedBytes = deleted.reduce(
-    (sum, p) => sum + (entryMap.get(p)?.sizeBytes || 0),
-    0
-  );
-
-  if (deleted.length > 0) {
-    console.log(
-      `\n${chalk.green('Done!')} Freed ${chalk.bold(formatSizeRaw(freedBytes))} across ${deleted.length} item${deleted.length === 1 ? '' : 's'}.`
-    );
-
-    // Per-category breakdown
-    const catBytes = {};
-    for (const p of deleted) {
-      const entry = entryMap.get(p);
-      if (entry) {
-        const catId = entry.categoryId;
-        catBytes[catId] = (catBytes[catId] || 0) + entry.sizeBytes;
-      }
-    }
-    if (Object.keys(catBytes).length > 1) {
-      for (const [catId, bytes] of Object.entries(catBytes).sort((a, b) => b[1] - a[1])) {
-        const def = ARTIFACT_CATEGORIES[catId];
-        console.log(`  ${def ? def.name : catId}: ${formatSizeRaw(bytes)}`);
-      }
-    }
-  }
-
-  if (failed.length > 0) {
-    console.log(
-      `\n${chalk.red('Failed')} to delete ${failed.length} item${failed.length === 1 ? '' : 's'}:`
-    );
-    for (const { path: p, error } of failed) {
-      console.log(`  ${shortenPath(p)} - ${error}`);
-    }
-  }
-}
-
-/**
- * List available categories.
- */
-export function listCategories() {
-  console.log(chalk.bold('\nAvailable artifact categories:\n'));
-
-  console.log(chalk.dim('  Project Artifacts (found by scanning):'));
-  for (const cat of Object.values(ARTIFACT_CATEGORIES).filter((c) => !c.isSystem)) {
-    console.log(`    ${chalk.bold(cat.id.padEnd(14))} ${cat.name}`);
-  }
-
-  console.log(chalk.dim('\n  System Caches (fixed locations):'));
-  for (const cat of Object.values(ARTIFACT_CATEGORIES).filter((c) => c.isSystem)) {
-    console.log(`    ${chalk.bold(cat.id.padEnd(22))} ${cat.name}`);
-  }
-
-  console.log(chalk.dim('\n  Use: prune --categories node,rust,xcode-derived'));
-  console.log(chalk.dim('  Or:  prune --all'));
-  console.log('');
+export async function promptYesNo(message, style) {
+  return confirm({ message, default: false, theme: asciiTheme(style) });
 }

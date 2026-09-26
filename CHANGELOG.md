@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-09-26
+
 ### Added
 
 - Shared artifact definitions in `Definitions/artifacts.json`, with a JSON Schema, used by both the macOS app and the CLI so the two can no longer drift apart.
@@ -61,7 +63,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Note: the `v2.0.0` tag points to a commit from before the repository history was rewritten, so it is not an ancestor of `main`.
 
-[Unreleased]: https://github.com/mk24x7/prune/compare/v3.1.0...HEAD
+[Unreleased]: https://github.com/mk24x7/prune/compare/v4.0.0...HEAD
+[4.0.0]: https://github.com/mk24x7/prune/compare/v3.1.0...v4.0.0
 [3.1.0]: https://github.com/mk24x7/prune/compare/v3.0.0...v3.1.0
 [3.0.0]: https://github.com/mk24x7/prune/compare/v2.0.0...v3.0.0
 [2.0.0]: https://github.com/mk24x7/prune/releases/tag/v2.0.0

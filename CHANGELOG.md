@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Freed space is measured from each volume's available capacity before and after cleanup, alongside the estimated total.
 - Minimum age filter (app picker and CLI `--min-age <days>`) so recently modified artifacts can be excluded.
 - CLI flags: `--categories`, `--all`, `--list-categories`, `--dry-run`, `--include-hidden`, `--yes`, `--json`, `--permanent`, `--min-age`, `--min-size`, `--max-depth`, `--no-color`, `--log-dir`, `--version`. Unknown flags are rejected with exit code 2.
-- Seven new artifact types: Android System Images, Android Virtual Devices, Gradle Wrapper Distributions, Simulator Caches, iOS Device Backups, Docker Disk Image and Downloaded Installers. Types that hold user data are off by default and marked as not regenerable.
+- Twelve new artifact types: Android System Images, Android Virtual Devices, Gradle Wrapper Distributions, Simulator Caches, iOS Device Backups, Docker Disk Image, Downloaded Installers, Go Build Cache, SwiftPM Cache, pnpm Cache, node-gyp Cache and Cypress Cache. Types that hold user data are off by default and marked as not regenerable.
 - Project hygiene files: LICENSE, CONTRIBUTING, SECURITY, issue and pull request templates, Dependabot configuration.
 
 ### Changed

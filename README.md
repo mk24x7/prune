@@ -20,7 +20,7 @@
 
 Prune is a native macOS app, with a companion CLI, that scans for regenerable developer
 artifacts and caches, shows what each one costs you in disk space, and moves the ones
-you pick to the Trash. It knows 42 artifact types across Node, Rust, Swift, Python,
+you pick to the Trash. It knows 47 artifact types across Node, Rust, Swift, Python,
 Gradle, Android and Xcode, plus the system caches that other tools ignore: DerivedData,
 Homebrew, pnpm, Go modules, Playwright browsers, Android system images and more.
 
@@ -145,6 +145,11 @@ Prune warns before touching them. To request a type, open an
 | Simulator Caches (`coresimulator-caches`) | `~/Library/Developer/CoreSimulator/Caches` | on | yes |
 | iOS Device Backups (`ios-device-backups`) | `~/Library/Application Support/MobileSync/Backup` (each subfolder) | off | no |
 | Docker Disk Image (`docker-disk-image`) | `~/Library/Containers/com.docker.docker/Data/vms/0/data/Docker.raw` | off | yes |
+| Go Build Cache (`go-build-cache`) | `~/Library/Caches/go-build`, or `$GOCACHE` | on | yes |
+| SwiftPM Cache (`swiftpm-cache`) | `~/Library/Caches/org.swift.swiftpm` | on | yes |
+| pnpm Cache (`pnpm-cache`) | `~/Library/Caches/pnpm` | on | yes |
+| node-gyp Cache (`node-gyp-cache`) | `~/Library/Caches/node-gyp` | on | yes |
+| Cypress Cache (`cypress-cache`) | `~/Library/Caches/Cypress`, or `$CYPRESS_CACHE_FOLDER` | on | yes |
 
 ### Other
 
@@ -184,7 +189,7 @@ Prune deletes things for a living, so it is built to be boring about it.
 | Interface | Native macOS app + CLI | Terminal | Terminal | Native macOS app |
 | Platforms | macOS 13+ (CLI also runs on Linux for project artifacts) | macOS, Linux, Windows | macOS, Linux, Windows | macOS |
 | Project artifacts | 19 types across JS, Rust, Swift, Python, Gradle | `node_modules` only | About 15 ecosystems | none |
-| System caches | 22 (Xcode, Homebrew, npm, pnpm, Go, Cargo, Android, Playwright...) | none | none | Xcode only |
+| System caches | 27 (Xcode, Homebrew, npm, pnpm, Go, Cargo, Android, Playwright...) | none | none | Xcode only |
 | Deletes to Trash | yes, default | no | no | no |
 | Re-verifies before delete | yes | no | no | n/a |
 | Distribution | Homebrew tap, DMG, npm | npm | cargo, Homebrew, AUR | Mac App Store |

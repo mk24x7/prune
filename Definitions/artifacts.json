@@ -836,6 +836,94 @@
       "isFile": true
     },
     {
+      "id": "go-build-cache",
+      "kind": "system",
+      "displayName": "Go Build Cache",
+      "description": "Go compiler build cache",
+      "nameFrom": "dirname",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "rebuilt on next go build (or: go clean -cache)",
+      "color": "cyan",
+      "icon": "g.square",
+      "path": "~/Library/Caches/go-build",
+      "pathOverrides": [
+        {
+          "env": "GOCACHE"
+        }
+      ],
+      "expand": false,
+      "readOnlyTree": false
+    },
+    {
+      "id": "swiftpm-cache",
+      "kind": "system",
+      "displayName": "SwiftPM Cache",
+      "description": "Swift Package Manager downloads and prebuilt artifacts",
+      "nameFrom": "dirname",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "re-downloaded on next swift build",
+      "color": "orange",
+      "icon": "swift",
+      "path": "~/Library/Caches/org.swift.swiftpm",
+      "pathOverrides": [],
+      "expand": false,
+      "readOnlyTree": false
+    },
+    {
+      "id": "pnpm-cache",
+      "kind": "system",
+      "displayName": "pnpm Cache",
+      "description": "pnpm metadata and download cache",
+      "nameFrom": "dirname",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "re-downloaded on next pnpm install",
+      "color": "green",
+      "icon": "cylinder",
+      "path": "~/Library/Caches/pnpm",
+      "pathOverrides": [],
+      "expand": false,
+      "readOnlyTree": false
+    },
+    {
+      "id": "node-gyp-cache",
+      "kind": "system",
+      "displayName": "node-gyp Cache",
+      "description": "Node.js headers downloaded for native addon builds",
+      "nameFrom": "dirname",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "re-downloaded on next native module build",
+      "color": "green",
+      "icon": "hammer",
+      "path": "~/Library/Caches/node-gyp",
+      "pathOverrides": [],
+      "expand": false,
+      "readOnlyTree": false
+    },
+    {
+      "id": "cypress-cache",
+      "kind": "system",
+      "displayName": "Cypress Cache",
+      "description": "Cypress binary versions",
+      "nameFrom": "dirname",
+      "defaultEnabled": true,
+      "regenerable": true,
+      "reinstallHint": "re-downloaded on next cypress install",
+      "color": "pink",
+      "icon": "checkmark.seal",
+      "path": "~/Library/Caches/Cypress",
+      "pathOverrides": [
+        {
+          "env": "CYPRESS_CACHE_FOLDER"
+        }
+      ],
+      "expand": false,
+      "readOnlyTree": false
+    },
+    {
       "id": "downloads-installers",
       "kind": "files",
       "displayName": "Downloaded Installers",

@@ -17,9 +17,9 @@ test('bundled definitions validate and have the pinned type count', () => {
   assert.deepEqual(validateDefinitions(raw), []);
   const defs = loadDefinitions({ env: {}, home: '/Users/fixture' });
   // Pinned: guards against accidental deletions or additions.
-  assert.equal(defs.types.length, 42);
-  assert.equal(defs.projectTypes.length + defs.systemTypes.length + defs.filesTypes.length, 42);
-  assert.equal(new Set(defs.types.map((t) => t.id)).size, 42);
+  assert.equal(defs.types.length, 47);
+  assert.equal(defs.projectTypes.length + defs.systemTypes.length + defs.filesTypes.length, 47);
+  assert.equal(new Set(defs.types.map((t) => t.id)).size, 47);
   assert.equal(defs.byId.get('node').kind, 'project');
   assert.equal(defs.version, 1);
   assert.ok(defs.scan.maxDepth >= 1);

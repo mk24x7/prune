@@ -35,9 +35,9 @@ final class DefinitionsTests: XCTestCase {
     func testBundledJSONLoadsAndValidates() throws {
         let defs = try Definitions.load()
         XCTAssertEqual(defs.version, 1)
-        XCTAssertEqual(defs.types.count, 42, "type count is pinned so accidental deletions are caught")
+        XCTAssertEqual(defs.types.count, 47, "type count is pinned so accidental deletions are caught")
         XCTAssertEqual(Set(defs.types.map(\.id)).count, defs.types.count)
-        XCTAssertEqual(defs.projectTypes.count + defs.systemTypes.count + defs.filesTypes.count, 42)
+        XCTAssertEqual(defs.projectTypes.count + defs.systemTypes.count + defs.filesTypes.count, 47)
         XCTAssertEqual(defs.colors.count, 12)
         XCTAssertEqual(defs.scan.maxDepth, 10)
     }
